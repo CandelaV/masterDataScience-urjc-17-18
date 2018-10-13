@@ -1,0 +1,55 @@
+#########
+## NEO 4J
+#########
+
+ * Carga en Neo4j
+
+	Caso1
+
+USING PERIODIC COMMIT 100
+LOAD CSV WITH HEADERS FROM 'file:///neo4j_input.csv' AS line
+WITH split(line.author,";") as authors, line._key as key
+UNWIND authors AS author
+MERGE (x:author {name:author})
+MERGE (m:key {key:key})
+MERGE (m)-[:WRITTEN_BY]->(x)
+
+	Caso2
+
+./bin/neo4j-import \
+--into ./data/databases/graphDBPL.db \
+--id-type string \
+--nodes:Collection ./import/colecciones.csv \
+--nodes:Author ./import/autores.csv \
+--relationships:WRITTEN_BY ./import/relaciones.csv
+
+
+ * Index en Neo4j
+CREATE INDEX ON :Author(authorId)
+
+
+ * Queries en Neo4j
+
+	1)	Listado de colecciones de un autor determinado: 
+
+MATCH (n:Author{authorId:'Javier M. Moguerza'})
+MATCH (n)<-[r:WRITTEN_BY]-(colecion:Collection)
+RETURN colecion,n
+
+
+	2)	Numero de publicaciones de un autor determinado:
+
+MATCH (n:Author{authorId:'Javier M. Moguerza'})
+MATCH (n)<-[:WRITTEN_BY]-(colecion:Collection)
+RETURN count(colecion)
+
+	3)	Coautores de un determinado autor:
+	
+MATCH (n:Author{authorId:'Javier M. Moguerza'})
+MATCH (n)<-[:WRITTEN_BY]-(colecion:Collection)-[:WRITTEN_BY]->(coautor:Author)
+RETURN coautor, colecion, n
+
+MATCH (n:Author{authorId:'Javier M. Moguerza'})
+MATCH (n)<-[:WRITTEN_BY]-(colecion:Collection)-[:WRITTEN_BY]->(coautor:Author)
+RETURN DISTINCT(coautor)
+
