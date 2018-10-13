@@ -11,13 +11,16 @@ Tras la implementación de la aplicación completa, se empaquetará en contenedo
 
 * **mysql-app** : situados en el directorio db-app se ejecuta el comando:
 
+
     $ docker build -t mysql-app .
 
 *  **tweetanalysis-app** : situados en el directorio tweetanalysis-app se ejecuta el comando:
 
+
     $ docker build -t tweetanalysis .
 
 * **docker-compose.yml** : se ejecuta el siguiente comando introduciendo los parámetros indicados (NOTA: TIME en segundos, ha de ser suficiente para obtener un numero elevado de twitts):
+
 
     $ docker-compose run -e TIME=XXX -e ACCESS_TOKEN_KEY=XXX -e ACCESS_TOKEN_SECRET=XXX -e CONSUMER_KEY=XXX -e CONSUMER_SECRET=XXX twittananalysis
 
