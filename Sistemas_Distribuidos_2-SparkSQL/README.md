@@ -5,4 +5,4 @@ de Jupyter con Spark SQL .
 
 **Practica_SparkSQL.ipynb**
 
-*Autora del proyecto: Candela Vidal *
+*Autora del proyecto: Candela Vidal*
