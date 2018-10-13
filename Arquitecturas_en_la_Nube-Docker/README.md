@@ -40,3 +40,5 @@ Dentro del contenedor, ejecutar los comandos:
     mysql> use resultados;
 
     mysql> select * from tweets;
+
+*Autoras del proyecto: Candela Vidal y Remedios Blazquez*

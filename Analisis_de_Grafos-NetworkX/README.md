@@ -18,3 +18,5 @@ Se realizan cálculos de medidas de centralidad sobre los datos utilizando Netwo
 **MeetUpGraph.html**
 
 Se crea una visualización de los datos procesados utilizando la librería D3.js
+
+*Autora del proyecto: Candela Vidal*
