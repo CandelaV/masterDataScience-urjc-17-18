@@ -1,0 +1,18 @@
+[
+  {
+    "_id": "61e83ed0-555d-11e8-8eb1-0bac0b42a807",
+    "_type": "dashboard",
+    "_source": {
+      "title": "Dashboard final opnfv community",
+      "hits": 0,
+      "description": "About OPNFV community",
+      "panelsJSON": "[{\"embeddableConfig\":{\"spy\":null},\"gridData\":{\"h\":2,\"i\":\"1\",\"w\":4,\"x\":5,\"y\":5},\"id\":\"8171e150-5532-11e8-bdcb-3b3a502afbf5\",\"panelIndex\":\"1\",\"title\":\"TOP 5 Authors\",\"type\":\"visualization\",\"version\":\"6.2.2\"},{\"gridData\":{\"h\":4,\"i\":\"2\",\"w\":6,\"x\":0,\"y\":7},\"id\":\"93846da0-5559-11e8-8eb1-0bac0b42a807\",\"panelIndex\":\"2\",\"title\":\"Top Companies & Authors & Repositories\",\"type\":\"visualization\",\"version\":\"6.2.2\"},{\"gridData\":{\"h\":2,\"i\":\"3\",\"w\":5,\"x\":0,\"y\":5},\"id\":\"a154b1a0-555a-11e8-8eb1-0bac0b42a807\",\"panelIndex\":\"3\",\"title\":\"Summary\",\"type\":\"visualization\",\"version\":\"6.2.2\"},{\"embeddableConfig\":{\"spy\":null,\"vis\":{\"legendOpen\":false}},\"gridData\":{\"h\":2,\"i\":\"6\",\"w\":3,\"x\":9,\"y\":5},\"id\":\"af162130-555e-11e8-8eb1-0bac0b42a807\",\"panelIndex\":\"6\",\"title\":\"Top 5 Repositories\",\"type\":\"visualization\",\"version\":\"6.2.2\"},{\"gridData\":{\"h\":3,\"i\":\"15\",\"w\":7,\"x\":0,\"y\":11},\"id\":\"475e2450-5565-11e8-8eb1-0bac0b42a807\",\"panelIndex\":\"15\",\"title\":\"Top Author by year\",\"type\":\"visualization\",\"version\":\"6.2.2\"},{\"embeddableConfig\":{\"spy\":null},\"gridData\":{\"h\":4,\"i\":\"16\",\"w\":6,\"x\":6,\"y\":7},\"id\":\"32e79e40-5568-11e8-8eb1-0bac0b42a807\",\"panelIndex\":\"16\",\"title\":\"Evolution by Companies \",\"type\":\"visualization\",\"version\":\"6.2.2\"},{\"gridData\":{\"h\":3,\"i\":\"20\",\"w\":5,\"x\":7,\"y\":11},\"id\":\"30207b60-568e-11e8-9572-3968546bc114\",\"panelIndex\":\"20\",\"title\":\"Commits evolution by moths\",\"type\":\"visualization\",\"version\":\"6.2.2\"},{\"gridData\":{\"h\":2,\"i\":\"21\",\"w\":12,\"x\":0,\"y\":0},\"id\":\"dd25ee10-5690-11e8-9572-3968546bc114\",\"panelIndex\":\"21\",\"title\":\"\",\"type\":\"visualization\",\"version\":\"6.2.2\"},{\"gridData\":{\"h\":3,\"i\":\"22\",\"w\":12,\"x\":0,\"y\":2},\"id\":\"a6570630-569f-11e8-9572-3968546bc114\",\"panelIndex\":\"22\",\"title\":\"\",\"type\":\"visualization\",\"version\":\"6.2.2\"}]",
+      "optionsJSON": "{\"darkTheme\":true,\"hidePanelTitles\":false,\"useMargins\":false}",
+      "version": 1,
+      "timeRestore": false,
+      "kibanaSavedObjectMeta": {
+        "searchSourceJSON": "{\"query\":{\"language\":\"lucene\",\"query\":\"\"},\"filter\":[],\"highlightAll\":true,\"version\":true}"
+      }
+    }
+  }
+]
