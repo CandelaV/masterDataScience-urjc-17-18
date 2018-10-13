@@ -1,0 +1,2339 @@
+---
+title: 'Pump it Up: Data Mining the Water Table'
+author: "Leda Duelo, Javier Llorente, Candela Vidal, Jaime Zamorano"
+date: "Abril de 2018"
+output:
+
+  html_document:
+    toc: yes
+    toc_depth: '5'
+mainfont: Roboto Light
+fontsize: 12pt
+---
+
+# Descripción del problema
+
+Utilizamos los datos de Taarifa y el del Ministerio del Agua de Tanzania que proponen precedir qué pozos de agua son funcionales. Dicha condición operativa, representada por la variabe **"status_group"**, puede tomar uno de los tres valores posibles :
+
+* "functional" - the waterpoint is operational and there are no repairs needed
+* "functional needs repair" - the waterpoint is operational, but needs repairs
+* "non functional" - the waterpoint is not operational
+
+Se intentará predecir una de estas tres clases basándose en una serie de variables sobre el tipo de bomba de agua, cuando fue instalada y como está siendo operada. 
+
+El conocimiento acerca del posible fallo de los punto de agua puede facilitar y mejorar su mantenimiento asegurando el abastecimiento de agua limpia y potable a las distintas comunidades de Tanzania.
+
+Los datos y el el objetivo de esta práctica se han obtenido de una competición activa de "drivendata.org"
+
+<https://www.drivendata.org/competitions/7/pump-it-up-data-mining-the-water-table/page/23/>
+
+
+## Establecer parametros iniciales 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
+
+
+#librerias
+if(!require("dplyr")){
+  install.packages("dplyr")
+  library("dplyr")
+}
+
+if(!require("tidyr")){
+  install.packages("tidyr")
+  library("tidyr")
+}
+
+if(!require("stargazer")){
+  install.packages("stargazer")
+  library("stargazer")
+}
+if(!require("leaflet")){
+  install.packages("leaflet")
+  library("leaflet")
+}
+
+if(!require("ggplot2")){
+  install.packages("ggplot2")
+  library("ggplot2")
+}
+
+if(!require("Amelia")){
+  install.packages("Amelia")
+  library("Amelia")
+}
+
+if(!require("foreign")){
+  install.packages("foreign")
+  library("foreign")
+}
+if(!require("nnet")){
+  install.packages("nnet")
+  library("nnet")
+}
+
+if(!require("reshape2")){
+  install.packages("reshape2")
+  library("reshape2")
+}
+if(!require("questionr")){
+  install.packages("questionr")
+  library("questionr")
+}
+if(!require("vcd")){
+  install.packages("vcd")
+  library("vcd")
+}
+if(!require("corrplot")){
+  install.packages("corrplot")
+  library("corrplot")
+}
+if(!require("VIM")){
+  install.packages("VIM")
+  library("VIM")
+}
+if(!require("ggExtra")){
+  install.packages("ggExtra")
+  library("ggExtra")
+}
+if(!require("forcats")){
+  install.packages("forcats")
+  library("forcats")
+}
+if(!require("lubridate")){
+  install.packages("lubridate")
+  library("lubridate")
+}
+if(!require("gtools")){
+  install.packages("gtools")
+  library("gtools")
+}
+if(!require("dendextend")){
+  install.packages("dendextend")
+  library("dendextend")
+}
+if(!require("tree")){
+  install.packages("tree")
+  library("tree")
+}
+
+if(!require("GoodmanKruskal")){
+  install.packages("GoodmanKruskal")
+  library("GoodmanKruskal")
+}
+
+``` 
+
+## Carga de los Datos
+
+A continuación leemos los datos del problema divididos en tres archivos diferentes.
+
+Datos de entrenamiento: 
+
+```{r}
+# Define train_values
+train_values <- "./Datasets/4910797b-ee55-40a7-8668-10efd5c1b960.csv"
+
+# Import train_values
+train_values <- read.csv(train_values, header=T, na.strings=c("", " "))
+```                         
+
+Etiquetas de los datos de entrenamiento correspondientes con el valor de "status_group" para cada observación:
+
+```{r}
+# Define train_labels
+train_labels <- "./Datasets/0bf8bc6e-30d0-4c50-956a-603fc693d966.csv"
+
+# Import train_labels
+train_labels <- read.csv(train_labels, header=T, na.strings=c("", " "))
+```
+
+Datos de test:
+```{r}
+# Define test_values
+test_values <- "./Datasets/702ddfc5-68cd-4d1d-a0de-f5f566f76d91.csv"
+
+# Import test_values
+test_values <- read.csv(test_values, header=T, na.strings=c(""," "))
+```
+
+Pegamos la columna con el valor de "status_group" a a los datos de entrenamiento:
+```{r}
+# Merge data frames to create the data frame train
+train_inicial <- merge(train_labels, train_values)
+```
+
+Al llegar al último paso hemos visto que estos datos de test son para la competición y no podemos utilizarlos para evaluar el modelo, ya que no tienen status group. De manera que divivimos los datos de train para crear los sets de train y test, un 70% para train y un 30% para test
+```{r}
+set.seed(42)
+train_idx = sample(1:dim(train_inicial)[1],dim(train_inicial)[1]*.7)
+train = train_inicial[train_idx, ]
+test = train_inicial[-train_idx, ]
+
+dim(train)
+dim(test)
+```
+
+
+# Análisis Exploratorio de datos
+
+El dataset consta de 40 variables de diversos tipos que se detallan a continuación:
+
+| Nombre variable |Descripción                           | Tipo  | Clasificación                      |
+|:----------------|:-------------------------------------|------:|-----------------------------------:|
+| amount_tsh | Cantidad de agua disponible para el punto de agua | numérica| | funcionales |
+| date_recorded | Fecha en la que se ha incluido la fila | numérica (factor) | otro |
+| funder | Quién fundó el pozo | categórica | funcionales |
+| gps_height | Altitud del pozo | numérica |  operacionales |
+| installer | Organización que instaló el pozo | categórica | funcionales |
+| longitude | Coordenada GPS | numérica | geo |
+| latitude | Coordenada GPS | numérica | geo |
+| wpt_name | Nombre (si tiene) del punto de agua | categórica |  funcionales |
+| num_private | Si tiene numero de teléfono | numérica | funcionales |
+| basin | Cuenca de agua geográfica | categórica | geo |
+| subvillage | Localización geográfica | categórica | geo |
+| region | Localización geográfica | categórica | geo | geo |
+| region_code | Localización geográfica (codificada) | numérica | geo |
+| district_code | Localización geográfica (codificada) | numérica | geo |
+| lga | Localización geográfica | categórica | geo |
+| ward | Localización geográfica | categórica | geo | 
+| population | Población alrededor del pozo | numérica | operacional |
+| public_meeting | True/False | categórica | funcionales | operacional |
+| recorded_by | Grupo que incluyó la fila | categórica | otro |
+| scheme_management | Quién opera el punto de agua | categórica | funcionales |
+| scheme_name | Quién opera el punto de agua | categórica | funcionales |
+| permit | Si el punto de agua tiene permisos | categórica | funcionales |
+| construction_year | Año en el que se construyó el punto de agua | numérica | funcionales |
+| extraction_type | Tipo de extracción que utiliza el punto de agua | categórica | operacionales |
+| extraction_type_group | Tipo de extracción que utiliza el punto de agua | categórica | operacionales |
+| extraction_type_class | Tipo de extracción que utiliza el punto de agua | categórica | operacionales |
+| management | Como se administra el punto de agua | categórica | funcionales |
+| management_group | Como se administra el punto de agua | categórica | funcionales | 
+| payment | Lo que cuesta el agua | categórica | funcionales |
+| payment_type | Lo que cuesta el agua | categórica | funcionales |
+| water_quality | La calidad del agua | categórica | operacionales |
+| quality_group | La calidad del agua | categórica | operacionales |
+| quantity | La cantidad del agua | categórica | operacionales |
+| quantity_group | La cantidad del agua | categórica | operacionales|
+| source | La fuente del agua | categórica | operacionales |
+| source_type | La fuente del agua | categórica | operacionales |
+| source_class | La fuente del agua | categórica | operacionales |
+| waterpoint_type | El tipo de punto de agua | categórica | operacionales |
+| waterpoint_type_group | El tipo de punto de agua | categórica | operacionales |
+
+
+Tabla variables **cuantitativas**:
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=2, fig.align='center' }
+variables_cuantitativas = c("amount_tsh","gps_height","population")
+
+df_new= train %>% 
+  select(variables_cuantitativas)
+
+stargazer(df_new, type = "text", 
+    summary.stat = c("min", "p25", "median", "p75", "max", "median", "sd"))
+
+d <- melt(df_new,id.vars = NULL)
+p <- ggplot(d,aes(x = value)) + 
+    facet_wrap(~variable,scales = "free_x") + 
+    geom_histogram()
+
+p + ggtitle("Variables quantitativas")
+p + scale_x_sqrt () + ggtitle("Transformación quantitativas sqrt")
+p + scale_x_log10() + ggtitle("transformación quantitativa log10 ")
+
+```
+
+Las variables de cantidad de agua y population tienen rangos muy amplios, ya que hay mucha concentración cerca del 0 y valores muy altos (30,500 y 350,000). 
+
+Tabla variables **cualitativas**:
+```{r paged.print=TRUE ,fig.align='center'}
+apply(select_if(train, is.factor),2, function(x)length(unique(x)))
+```
+
+No tenemos en cuenta la variable **record_by** ya solo tiene un nivel, todos los registros están grabados por la misma compañía.  
+
+
+## Variable **Objetivo**
+
+```{r}
+describe(train$status_group)
+```
+
+Al analizar la variable objetivo vemos que la categoria **functional needs repair** es un **7%** de las observaciones. Vamos a aprovechar la poca frecuencia de este dato para **simplificar el problema** y predecir solo si funciona o no funciona.
+
+```{r,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+# Crear la variable
+train$status_group_dummy <- with(train, ifelse(status_group=='non functional' | status_group=='functional needs repair', 0, 1))
+
+# Analizar respecto a la variable original
+prop.table(table(train$status_group_dummy, train$status_group), margin = 1)
+describe(train$status_group_dummy)
+
+# Crear DF para plotear
+table <- table(train$status_group_dummy, train$status_group)
+df <- train %>% 
+  select(status_group, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group 3 niveles versus 2 niveles",
+           sub = "Product Colors by Country",
+           ylab = "Status Group 2 niveles \n  0 -> NO funciona - 1 ->  funciona",
+           xlab = "Status Group 3 niveles ",
+           las = 1 , color = TRUE)
+
+assoc(table,main = "status group 3 levels vs 2 levels dummy",
+      shade = TRUE, xscale = 0.4, yscale = 0.4,yspace = unit(0.7, "lines"),
+      spacing = spacing_conditional(sp = 0), spacing_args = list())
+
+tabla_job1 <- table(train$status_group_dummy, train$status_group)
+chisq1 <- chisq.test(tabla_job1)
+
+
+corrplot(chisq1$residuals, is.cor = FALSE,title = "Chi-residuals", tl.srt = 0,cl.align.text = "c")
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE,title = "relative ",tl.srt = 0,cl.align.text = "c")
+
+
+
+```
+El **55%** de las observaciones han sido recogidas cuando los **pozos funcionan**. Esta nueva variable, añade a las observaciones de pozos que**NO funcionan**, las observaciones de pozos que necesitan arreglos que suponen un **15%** de esta nueva clase "NO FUNCIONAN". 
+
+
+## Missing Values
+Tras revisar el dataset vemos que las variables cualitativas tienen como nivel los valores unknow, clasificamos esas observaciones con NA y eliminamos dicho nivel del factor de cada variable.
+
+Transformamos valores 'unknown', 'Unknown' y 'None' a N/A:
+```{r}
+train[ train == "unknown" ] <- NA
+train[ train == "Unknown" ] <- NA
+train[ train == "None" ] <- NA
+```
+
+Eliminar unknown en los niveles
+```{r message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+
+train[] <- lapply(train, function(x) if(is.factor(x)) factor(x) else x)
+```
+
+
+Transformamos valores 0 en N/A en las variables quantitativas de amount_tsh y construction_year:
+```{r}
+train$amount_tsh [train$amount_tsh == 0] <- NA
+train$construction_year [train$construction_year == 0] <- NA
+```
+
+Vemos el mapa de datos faltantes para ver donde falta información y si se puede rellenar
+
+```{r}
+#sapply(train, function(x) sum(is.na(x)))
+missmap(train, legend = FALSE, col = c("grey","black"), y.labels = c(1, 2500, 59400), y.at = c(1, 2500, 59400))
+```
+
+Los campos con más NAs son dificiles de imputar : 
+ * EL 70% de los datos de amount que valen 0 puede ser que sea debido a que el pozo no tenga agua y no a que no se haya registrado dicho valor.
+ * Los campos textos con valores muy variados tienen una alto numero de NA´s. Poer ello hemos decidido no utilizar en el modelo las variables schme_name y funder. 
+ * Hay campos relevantes como permit y  paymet que tienen un 50% de los datos fatantes, así como  quality con casí un 30%. Son campos que no creemos que por similitud con otros pozos o cernanía geográfica se puedan imputar sus valores. Se tendrá en cuenta el impacto.
+
+## Análisis y tratamiento **variable a variable**
+
+Tenemos diferentes tipos de variables que nos ayudan a caractizar las observaciones de cada puesto
+1. Categorías **Funcionales** 
+  + Variables: *13* variables 
+2. Categorías **Operacionales** 
+  + Variables: *15* variables
+3. Categorías **Geográficas**
+  + Variables: *9* variables
+
+**Analizamos para cada grupo las variables** , aunque algunas de ellas las analizaremos en conjunto ya que hay variables muy similares y tendremos que elegir entre ellas y evitar incluir en los modelos correlaciones muy altas.
+
+Pasos:
+  + **Analizar** la distribución de la variable.  
+  + **Tratamiento y transformación** si fuese necesario
+  + **Evaluar** su significancia respecto a la variable objetivo
+
+### Variables **Funcionales**:
+Son variables que nos dan información sobre **la gestión del pozo y carácteristicas** del mismo.
+
+Variables **categoricas** funcionales:
+
+Tras evaluar las variables funcionales hay campos de string que tienen muchas posibilidades de error y  son sobre cosas similares ademas tienen muchos niveles, en pro de la simplicación del modelo eliminamos esas variables sucias:  "scheme_name", "funder", "wpt_name"
+
+Variables: 
+```{r ,  results="hide", include=FALSE}
+# crear subset
+variables_factor_func = c("permit","scheme_management","management",
+                          "management_group","payment", "payment_type","status_group_dummy")
+subdf <- train[,variables_factor_func]
+```
+
+```{r }
+aggr_plot <- aggr(subdf, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE,
+                  labels=names(subdf), cex.axis=.7, gap=3,
+                  ylab=c("Histogram of missing data","Pattern"))
+```
+
+
+No se pueden imputar datos faltantes de estas variables apoyándose en otras variables similares ya que dichos datos faltantes son comunes en ambos grupos. 
+
+#### Variable Funcional 1: **Permit**
+Indica si el pozo tiene permisos.
+
+Análisis
+```{r }
+questionr::freq(train$permit, cum = TRUE, sort = "dec", total = TRUE)
+```
+El **69%** de las observaciones es en pozos que tienen permisos, hay un 5% de NAs.
+
+Respecto a la variable objetivo:
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+theme_set(theme_classic())
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs permit")
+g + geom_bar(aes(fill = permit), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = permit),position = "fill") 
+
+
+
+# Crear DF para plotear
+table <- table(train$permit, train$status_group_dummy)
+df <- train %>% 
+  select(permit, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs permiso",
+           sub = "Product Colors by Country",
+           ylab = "Status Group  \n  0 -> NO funciona - 1 ->  funciona",
+           xlab = "¿El pozo tiene permisos?",
+           las = 1, color = TRUE)
+
+assoc(table,main = "status group  vs permisos",
+      shade = TRUE, xscale = 0.4, yscale = 0.4,yspace = unit(0.7, "lines"),
+      spacing = spacing_conditional(sp = 0), spacing_args = list())
+
+tabla_job1 <- table(train$permit, train$status_group_dummy)
+chisq1 <- chisq.test(tabla_job1)
+chisq1
+chisq1$residuals 
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+```
+**Permit NO es una variable muy significativa**, observando los datos relativos si el pozo tiene permisos funciona en más ocasiones. 
+
+Los Na´s están repartidos en ambos niveles del status group.
+
+ + Las observaciones cuando el POZO NO FUNCIONA (0) están fuertemente asociadas a no tener permisos (FALSE)
+ + Las observaciones cuando el POZO NO FUNCIONA (0) están se asocian frecuentemente a tener permisos (TRUE)
+
+
+#### Variables Funcionales 2: Grupo de variables de **management**
+
+Hay **3** variables sobre management, **management** da nombre a cada tipo de management, **management group** y **scheme_management** agrupa a los  tipos en otras clasificaciones.
+
+Evaluemos cada nivel de agregación y en que se diferencian:
+```{r }
+#Numero de levels
+print("levels m group : ")
+length(levels(train$management_group))
+print("levels m : ")
+length(levels(train$management))
+print("levels scheme m : ")
+length(levels(train$scheme_management))
+
+#Diferencia de niveles
+l1 <- tolower(train$management)
+l2 <- tolower(train$scheme_management)
+
+print("Diferencias de niveles : ")
+print("Niveles diferentes en los de menor nivel de agregacio y Porcentaje:")
+setdiff(union(l1, l2), 
+        intersect(l1, l2))
+
+```
+
+```{r ,  results="hide", include=FALSE}
+# crear subset
+variables_management = c("management", "management_group", "scheme_management")
+
+subdf= train %>% 
+  select(variables_management)
+```
+
+
+```{r,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center'}
+#Plotear
+p <- ggplot(train,aes(x = management, fill =management_group)) + 
+    geom_bar()
+
+g <- ggplot(train,aes(x = scheme_management, fill =management)) + 
+    geom_bar()
+
+p + ggtitle("Variables Funcionales sobre Management vs group") + 
+  facet_grid(management_group ~.,scales = "free") +
+  theme(strip.text.y = element_text(angle = 0, hjust = 0),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+g + ggtitle("Variables Funcionales sobre scheme vs group \n la diferencia está en los campos Swc y Other") + 
+  facet_grid(management ~.,scales = "free") +
+  theme(strip.text.y = element_text(angle = 0, hjust = 0),
+        axis.text.x = element_text(angle = 45, hjust = 1) )
+
+
+#Analizar  frecuencias
+lapply(subdf, freq)
+```
+La variable management se agrupa en 2 niveles de management group.
+
+Relación entre las variables:
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+#relationship
+
+
+GKmatrix1 <- GKtauDataframe(subdf)
+plot(GKmatrix1) ##raro un 0.26???
+```
+Las variables scheme_management, management_group y management son muy similares: La primera tiene  una relación superior a 0.5 con las otras 2 variables.
+
+La variable management_group, con 4 niveles, agrupa en 2 de ellos 8 niveles de las otras variables. Entre ellos "wc"" que es el valor que más frecuencia tiene: más de un **66%** en management y un **89%** en management_group. 
+Seguimos solo analizando management y management_group y evaluaremos luego cuál aporta más información al modelo.
+
+Vamos a ver relación con **variable objetivo**
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs management")
+g + geom_bar(aes(fill = management), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = management),position = "fill") 
+```
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs management group")
+g + geom_bar(aes(fill = management_group), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = management_group),position = "fill") 
+
+```
+
+Hay más observaciones de pozos que funcionan gestionados por  grupos sociales, aunque en datos relativos estos grupos tienen levemente más pozos que NO funcionan.
+
+
+Significancia de ambas variables **Management**
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$management, train$status_group_dummy)
+
+df <- train %>% 
+  select(management, status_group_dummy)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+
+```
+Management es una variable **significativa**, analizando sus niveles: **Water Board** es el tipo de management **más significativo**, pero apenas tiene frecuencia, cuando el pozo funciona. En general los **managemente de grupos de usuarios** son los **más significativos cuando no funciona**.
+
+Está regla no la cumple el **vwc**, que es el tipo de management más habitual, es una estructura de 1991 elegida por la comunidad pero vinculada al poder estatal.
+
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$management_group, train$status_group_dummy)
+
+chisq1 <- chisq.test(table) 
+chisq1
+ 
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+
+```
+**Managemente group No es una variable significativa**.
+Los diferentes tipos de management de usuarios tienen altos residuos, **destaca que modo comercial es altamente significativo cuando el pozo funciona**.
+
+Pasamos al modelo la variable managemement
+
+```{r}
+#Ordenar niveles por frecuencia
+train$management = fct_infreq(train$management)
+summary (train$management)
+```
+
+
+#### Variables Funcionales 3 : Grupo de variables de **Payment**
+
+Hay 2 variables sobre payment: **payment** da nombre a cada tipo de management, **payment_type** que clasifica el tipo de pago.
+
+```{r }
+#Numero de levels
+print("levels payment : ")
+length(levels(train$payment))
+print("levels m : ")
+length(levels(train$payment_type))
+
+
+#Diferencia de niveles
+l1 <- tolower(train$payment)
+l2 <- tolower(train$payment_type)
+
+print("Diferencias de niveles : ")
+print("Niveles diferentes en los de menor nivel de agregaciòn y Porcentaje:")
+setdiff(union(l1, l2), 
+        intersect(l1, l2))
+```
+
+```{r ,  results="hide", include=FALSE}
+# crear subset
+variables_payment = c("payment", "payment_type")
+
+subdf= train %>% 
+  select(variables_payment)
+
+#quitar levels sin observaciones
+lapply(subdf,  function(x) factor(x))
+subdf[] <- lapply(subdf, function(x) if(is.factor(x)) factor(x) else x)
+```
+
+Visualizar una variable junto a la otra
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center'}
+#Plotear
+p <- ggplot(train,aes(x = payment, fill =payment_type)) + 
+    geom_bar()
+
+p + ggtitle("Variables Funcionales sobre payment vs p_type") + 
+  facet_grid(payment_type ~.,scales = "free") +
+  theme(strip.text.y = element_text(angle = 0, hjust = 0),
+        axis.text.x = element_text(angle = 45, hjust = 1) )
+
+```
+
+Relación
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+#relationship
+GKmatrix1 <- GKtauDataframe(subdf)
+plot(GKmatrix1) 
+```
+Es la misma varaible, son cambios eb el nombre de cada nivel.
+
+Vamos a ver relación con **variable objetivo**
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+questionr::freq(train$payment, cum = TRUE, sort = "dec", total = TRUE)
+train$payment = factor(train$payment)
+
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs payment")
+g + geom_bar(aes(fill = payment), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = payment),position = "fill") 
+```
+
+Vemos que tienen más peso en los pozos que no funcionan los pagos por eventos, creamos una **nueva variable** que diferencie los **pagos periodicos por fee versus pago por acción de consumo**.
+
+```{r}
+train$periodic_payment[train$payment_type == 'monthly' | train$payment_type == 'annually'] <- TRUE
+train$periodic_payment[train$payment_type == 'per bucket' | train$payment_type == 'on failure'] <- FALSE
+```
+
+Vamos a plotear esa nueva variable junto a la variable de payment y ver su relación
+```{r,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center'}
+#Plotear
+p <- ggplot(train,aes(x = payment, fill =periodic_payment)) + 
+    geom_bar()
+
+p + ggtitle("Variables Funcionales  payment vs periodic") + 
+  facet_grid(periodic_payment ~.,scales = "free") +
+  theme(strip.text.y = element_text(angle = 0, hjust = 0),
+        axis.text.x = element_text(angle = 45, hjust = 1) )
+
+#Analizar  frecuencias
+questionr::freq(train$periodic_payment, cum = TRUE, sort = "dec", total = TRUE)
+```
+
+Un **58%** de los datos no tienen tipo de pago. Viendo los que incluyen tipo de pago, un **52%** de los pozos son pago No periodicos.
+
+Vamos a ver relación con **variable objetivo**
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=10, fig.height=5, fig.align='center' }
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs payment periodic ")
+g + geom_bar(aes(fill = periodic_payment), position = position_stack(reverse = TRUE)) 
+g +geom_bar(aes(fill = periodic_payment),position = "fill") 
+
+```
+Al no incluir las observaciones clasificadas como never pay y other, solo hay un poco más del 25% de las observaciones de pozos que funcionan con información sobre el pago y apenas un 50% de las que funcionan. 
+
+
+Relación de ambas variables 
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+
+# crear subset
+variables_payment = c("payment", "periodic_payment", "status_group_dummy")
+
+subdf= train %>% 
+  select(variables_payment)
+
+GKmatrix1 <- GKtauDataframe(subdf)
+plot(GKmatrix1)
+```
+Están relaciónadas.
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+
+
+
+# Crear DF para plotear
+table <- table(train$payment, train$status_group_dummy)
+
+df <- train %>% 
+  select(payment, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs payment",
+           ylab = "Status",
+           xlab = "Management",
+           shade=TRUE,
+           las = 2, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group vs payment",
+      shade = TRUE,las=3)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+
+```
+**Payment** es una variable **significativa**.
+
+Según el análisis de residuos:
+ + Las observaciones cuando el POZO NO FUNCIONA (0) están fuertemente asociadas a que nunca se paga.
+ + Las observaciones cuando el POZO  FUNCIONA (1) están se asocian frecuentemente a un tipo de pago.
+
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$periodic_payment, train$status_group_dummy)
+
+df <- train %>% 
+  select(periodic_payment, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs periodic payment",
+           ylab = "Status",
+           xlab = "Management group",
+           shade=TRUE,
+           las = 1, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group  vs periodic payment",
+      shade = TRUE)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+```
+**Periodic payment NO es una variable significativa**.
+
+Se relacinan las observaciones de pozos que no funcionan con que no sea un pago periodico (ojo o no se paga). Mirando la contribución relativa: 
+ + La columna 0 está fuertemente asociada a la fila True
+ + La columna 0  se asocia frecuentemente con la fila False
+ 
+Ordenamos Payment por frecuencia
+```{r}
+
+train$payment = fct_infreq(train$payment)
+summary (train$payment)
+```
+
+
+#### Variables Funcionales 4 : **Amount**
+Cantidad de agua del pozo
+
+Análisis de la variable:
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+summary(train$amount_tsh)
+
+p <- ggplot(train, aes(x=amount_tsh)) + 
+        geom_histogram()
+p 
+p +  scale_x_log10() 
+p + scale_y_sqrt() 
+```
+El **rango es amplio** y es necesario una **transformación logaritmica** para ver mejor las diferencias.
+
+En relación con **la variable objetivo**
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center'}
+
+p <- ggplot(train, aes(x = amount_tsh)) +
+              geom_density(aes(group=status_group_dummy, colour=status_group_dummy)) 
+p
+p +  scale_x_log10()
+p +  scale_x_sqrt()
+```
+
+Creamos **una variable** que agrupe en **tres niveles el volumen de agua** que da el pozos:
+
+```{r}
+
+quantile(train$amount_tsh, na.rm= TRUE)
+train$amount_tsh_fac <- quartiles <- quantcut( log(train$amount_tsh), 3, na.rm=TRUE  )
+summary(train$amount_tsh_fac)
+levels(train$amount_tsh_fac)[levels(train$amount_tsh_fac)=="[-1.61,3.91]"] <- "Low"
+levels(train$amount_tsh_fac)[levels(train$amount_tsh_fac)=="(3.91,6.21]"] <- "Medium"
+levels(train$amount_tsh_fac)[levels(train$amount_tsh_fac)=="(6.21,12.8]"] <- "Large"
+describe(train$amount_tsh_fac)
+```
+Es una variable que destaca, más que el dato  concreto del nivel de agua. Probamos a crear una nueva variable factor donde cálculamos los quantiles para crear un variable que divida en  3 niveles la cantidad de agua extraida.
+       
+| Nombre de nueva variable |Rango que agrupa                            |
+|:-------------------------|:------------------------------------------:|
+| Low | [-1.61,3.91] |        
+| Medium | (3.91,6.21]|      
+| Large | (6.21,12.8]  |       
+
+Ver relación con variable objetivo:
+```{r,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+# Crear DF para plotear
+table <- table(train$amount_tsh_fac, train$status_group_dummy)
+
+df <- train %>% 
+  select(amount_tsh_fac, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs periodic payment",
+           ylab = "Status",
+           xlab = "Management group",
+           shade=TRUE,
+           las = 1, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group  vs periodic payment",
+      shade = TRUE)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+```
+A pesar de lo que parecía **Amount factor NO es variable significativa**, los niveles medios de agua son significativos en relación a que los pozos NO funcionan  y niveles amplios tienen una relación con que SI funcionen.
+
+
+#### Variables Funcionales 5 : Grupo de variables de **Year**
+
+Transformamos la fecha de grabación del registro de factor a date:
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+
+train$construction_year [train$construction_year == 0] <- NA
+str(train$construction_year)
+
+train$construction_yearT <- ymd(sprintf("%d-01-01",train$construction_year)) 
+
+train$construction_yearY <- year(train$construction_yearT)
+
+str(train$construction_yearT)
+str(train$construction_yearY)
+
+```
+
+Análisis
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center'}
+summary(train$construction_yearY)
+
+p <- ggplot(train, aes(x=construction_yearY,fill = status_group_dummy )) 
+p + geom_histogram(binwidth=1) + facet_grid(. ~ status_group_dummy)
+
+p <- ggplot(train, aes(x = construction_yearY)) +
+              geom_density(aes(group=status_group_dummy, colour=status_group_dummy)) 
+p 
+
+
+```
+Si **el pozo se ha construido más tarde** tiene más observaciones de pozos que **funcionan**. Los pozos más viejos no funcionan, el pico se ve en 1985.
+
+Incluimos el año en el modelo.
+
+#### Variables Funcionales 6 :  **Nº privado**
+
+Indica si hay numero de telefono en el pozo
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+describe(train$num_private)
+
+x <- train %>% 
+  filter(num_private > 0)
+describe(x$num_private)
+hist(log(x$num_private))
+```
+No la tenemos en cuenta ya que hay en poco volumen de datos
+
+> DE LAS VARIABLES FUNCIONALES NOS HEMOS QUEDADO CON LAS VARIABLES : "management" o "management_group", "payment", “construction_yearY”
+
+### Variables **Operacionales** :
+
+Categoricas Operacionales
+```{r }
+# seleccionar variable
+variables_factor_oper = c("public_meeting", "extraction_type","extraction_type_group",
+                          "extraction_type_class","water_quality", "quality_group",
+                          "quantity", "quantity_group",
+                          "source", "source_type", "source_class",
+                          "waterpoint_type", "waterpoint_type_group")
+
+# crear subset
+subdf <- train[,variables_factor_oper]
+```
+
+
+Procedemos ahora a analizar las variables con respecto a la variable objetivo:
+
+#### Variable Operacional 1: **Public meeting**
+
+Indica si el pozo tiene permisos.
+
+Análisis
+```{r }
+questionr::freq(train$public_meeting, cum = TRUE, sort = "dec", total = TRUE)
+```
+El **86%** de las observaciones es en pozos que tienen permisos.
+
+Respecto a objetivo
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+theme_set(theme_classic())
+
+p <- ggplot(train) +
+  aes(x = as.character(status_group_dummy), fill = permit , na.rm = TRUE) +
+  geom_bar() 
+p
+
+g <- ggplot(train, aes(as.factor(status_group_dummy)))
+g + geom_bar(aes(fill = public_meeting), position = position_stack(reverse = TRUE)) +
+ coord_flip() +
+ theme(legend.position = "top")
+
+ggplot(train) +
+  aes(x = as.factor(status_group_dummy) , fill = public_meeting) +
+  geom_bar(position = "fill") +
+ coord_flip()
+
+# Crear DF para plotear
+table <- table(train$public_meeting, train$status_group_dummy)
+df <- train %>% 
+  select(public_meeting, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group 3 niveles versus 2 niveles",
+           sub = "Product Colors by Country",
+           ylab = "Status Group 2 niveles \n  0 -> funciona - 1 -> NO funciona",
+           xlab = "Status Group 3 niveles ",
+           las = 1, color = TRUE)
+library(vcd)
+assoc(table,main = "status group 3 levels vs 2 levels dummy",
+      shade = TRUE, xscale = 0.4, yscale = 0.4,yspace = unit(0.7, "lines"),
+      spacing = spacing_conditional(sp = 0), spacing_args = list())
+
+tabla_job1 <- table(train$public_meeting, train$status_group_dummy)
+chisq1 <- chisq.test(tabla_job1)
+chisq1
+chisq1$residuals 
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+
+
+```
+Public meeting Es una variable **significativa**, hay una relación fuerte entre **cuando el pozo NO ES lugar de encuentro, NO suele funcionar **. y relación fuerte en el caso contrario **cuando el pozo SI ES lugar de encuentro, SI suele funcionar **
+
+```{r}
+
+#Ordenar niveles por frecuencia
+train$public_meeting = fct_infreq(train$public_meeting)
+summary (train$public_meeting)
+```
+
+#### Variables Operacionales 2: Grupo de variables de **Extraction type**
+
+Hay 3 variables sobre tipo de **extracción** , vamos a analizar su aportación. Queremos ver hasta que punto una está compuesta por otra y su aportación al problema
+
+```{r }
+#Numero de levels
+print("levels extraction  class : ")
+length(levels(train$extraction_type_class))
+print("levels extraction  group : ")
+length(levels(train$extraction_type_group))
+print("levels extraction : ")
+length(levels(train$extraction_type))
+
+
+#Diferencia de niveles con más levels
+l1 <- tolower(train$extraction_type_group)
+l2 <- tolower(train$extraction_type)
+
+print("Diferencias de niveles : ")
+print("Niveles diferentes en los de menor nivel de agregación:")
+setdiff(union(l1, l2), intersect(l1, l2))
+```
+
+```{r ,  results="hide", include=FALSE}
+# crear subset
+variables_extraction = c("extraction_type_class", "extraction_type_group", "extraction_type")
+
+subdf= train %>% 
+  select(variables_extraction)
+```
+
+Visualizar una variable junto a la otra
+```{r}
+#Plotear
+p <- ggplot(train,aes(x = extraction_type_group, fill =extraction_type)) + 
+    geom_bar()
+
+p + ggtitle("3 Variables operaciones sobre extracción") + 
+  facet_grid(extraction_type_class ~.,scales = "free") +
+  theme(strip.text.y = element_text(angle = 0, hjust = 0),
+        axis.text.x = element_text(angle = 45, hjust = 1) ) 
+```
+
+
+Relación
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+#relationship
+GKmatrix1 <- GKtauDataframe(subdf)
+plot(GKmatrix1) 
+```
+Las 3 variables están muy relaciónadas, principalmente extración_type y type_group (agrupa niveles en summersible y other). 
+En el gráfico veíamos que handpump(extraction_type_class) agrupa 4 variables de extraction_type_group.
+
+Vamos a ver relación con **variable objetivo**
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+questionr::freq(train$extraction_type_class, cum = TRUE, sort = "dec", total = TRUE)
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs extraction")
+g + geom_bar(aes(fill = extraction_type_class), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = extraction_type_class),position = "fill") 
+```
+El **45%** de las observaciones es gravity y el **84%** se agrupa en 3 variables , y las observaciones de pozos que funcionan el peso de otros tipos de extración es alta.
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+questionr::freq(train$extraction_type_group, cum = TRUE, sort = "dec", total = TRUE)
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs extraction")
+g + geom_bar(aes(fill = extraction_type_group), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = extraction_type_group),position = "fill") 
+```
+
+Se necesita una variable más para llegar al **80%** de los datos,  aunque hay 5 variables que no llegan al 1% de frecuencia.
+
+Vamos a ver relación con **variable objetivo**
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+questionr::freq(train$extraction_type, cum = TRUE, sort = "dec", total = TRUE)
+
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs extraction ")
+g + geom_bar(aes(fill = extraction_type), position = position_stack(reverse = TRUE)) 
+g +geom_bar(aes(fill = extraction_type),position = "fill") 
+
+```
+
+Se necesita una variable más, 5 en lugar de 4, para llegar al **80%** de los datos,  aunque hay 8 variables, 3 más, que no llegan al 1% de variables.
+
+Significancia
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$extraction_type_class, train$status_group_dummy)
+
+df <- train %>% 
+  select(extraction_type_class, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs extraction class",
+           ylab = "Status",
+           xlab = "extraction class",
+           shade=TRUE,
+           las = 2, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group vs extraction class",
+      shade = TRUE,las=3)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+
+```
+**extraction_type_class es significativa**, 
+
+ + La columna other está fuertemente asociada a la fila 0, NO funciona
+ + Las columna gravity y handpump  se asocian frecuentemente con pozos que funcionan
+ + la columna motor pump, se asocia levement con que no funciona. 
+ 
+ Es decir si tiene medcanismo manual tiende a funcionar, otro mecanismo tiende a no funcionar.
+
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$extraction_type_group, train$status_group_dummy)
+
+chisq1 <- chisq.test(table)
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+```
+Aporta un poco más de conocimiento ya que desagrega los mecanismos manuales pero introduce más complejidad y poca información más. 
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$extraction_type, train$status_group_dummy)
+
+chisq1 <- chisq.test(table) #NA?, creía que solo por 0
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+```
+Aporta un poco más de conocimiento pero mucha más complejidad. 
+
+Las variables están muy relacionadas.
+
+Completamos el df definitivo, y ya que las variables están muy relacionadas y tienen un nivel de explicación similar de la varaible objetivo. **Seleccionamos la menos compleja extraction_type_class**
+
+```{r }
+#Ordenar niveles por frecuencia
+train$extraction_type_class = fct_infreq(train$extraction_type_class)
+summary (train$extraction_type_class)
+```
+
+#### Variables Operacionales 3: Grupo de variables de **Quality**
+
+Hay 2 variables sobre tipo de **quality**, vamos a analizar su similaridad y aportación Queremos ver hasta que punto un está compuesta por otra y su aportación al problema
+
+```{r }
+#Numero de levels
+print("levels quality group: ")
+length(levels(train$quality_group))
+print("levels quality : ")
+length(levels(train$water_quality))
+
+#Diferencia de niveles con más levels
+l1 <- tolower(train$quality_group)
+l2 <- tolower(train$water_quality)
+
+print("Diferencias de niveles : ")
+print("Niveles diferentes en los de menor nivel de agregación:")
+setdiff(union(l1, l2), intersect(l1, l2))
+```
+La diferencia principal es añadir los niveles de : abandoned
+
+Vemos que puede ser interesante crear una nueva variable que clasifique está calidad como bebible o no:
+```{r}
+train$drinkable[train$quality_group == "good"]   <- TRUE
+train$drinkable[train$quality_group == 'salty' | train$quality_group == 'milky' | train$quality_group == 'colored'| train$quality_group == 'fluoride'] <- FALSE
+```
+
+
+```{r ,  results="hide", include=FALSE}
+# crear subset
+variables_extraction = c("drinkable", "quality_group", "water_quality")
+
+subdf= train %>% 
+  select(variables_extraction)
+```
+
+Visualizar una variable junto a la otra
+```{r}
+#Plotear
+p <- ggplot(train,aes(x = quality_group, fill =water_quality)) + 
+    geom_bar()
+
+p + ggtitle("3 Variables operaciones sobre calidad") + 
+  facet_grid(drinkable ~.,scales = "free") +
+  theme(strip.text.y = element_text(angle = 0, hjust = 0),
+        axis.text.x = element_text(angle = 45, hjust = 1) ) 
+```
+Vemos que la variable con más niveles modifica el nombre de good y le llama soft y además como comentamos, simplemente subdivide en 2 categorias en su categoria más abandoned, pero apenas tienen frecuencia. 
+
+Relación
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+#relationship
+GKmatrix1 <- GKtauDataframe(subdf)
+plot(GKmatrix1) 
+```
+Están altamente relacionadas las 3 variables, quiza la nueva variable no aporta 
+**Elegimos quality group y drinkable y de estas 2 solo una podrá estar en el modelo ya que están altamente relacionadas**.
+
+Vamos a ver relación con **variable objetivo**
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+questionr::freq(train$quality_group, cum = TRUE, sort = "dec", total = TRUE)
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs Quality")
+g + geom_bar(aes(fill = quality_group), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = quality_group),position = "fill") 
+```
+
+El **86%** de las observaciones tienen una calidad clasificada como good,en relación con la variable objetivo la diferencia principal es en el volumen de good y de salty.
+
+Vamos a ver relación con **variable objetivo**
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+questionr::freq(train$drinkable, cum = TRUE, sort = "dec", total = TRUE)
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs drinkable")
+g + geom_bar(aes(fill = drinkable), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = drinkable),position = "fill") 
+```
+
+Hay más peso de NA´s en las observaciones de pozos que NO funcionan y más peso de NO bebibles en pozos que NO funcionan.
+
+Significancia
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$quality_group, train$status_group_dummy)
+
+df <- train %>% 
+  select(quality_group, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs extraction",
+           ylab = "Quality",
+           shade=TRUE,
+           las = 1, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group  vs quality",
+      shade = TRUE)
+
+chisq1 <- chisq.test(table)
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+```
+**Quality es significativa**, destaca la diferencia de relación de pozos que NO funcionan con el nivel salty. 
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$drinkable, train$status_group_dummy)
+
+df <- train %>% 
+  select(drinkable, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs extraction type",
+           ylab = "Status",
+           xlab = "drinkable",
+           shade=TRUE,
+           las = 1, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group  vs drinkable ",
+      shade = TRUE)
+
+chisq1 <- chisq.test(table)
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+```
+Es significativa, pero está muy correlacionada con quality que además es mas explicativa. Nos quedamos con está ultima.
+
+Si no es bebible está asociada a que no funcione y si el agua es bebible el pozo está frecuetemente asociada a que funcione.
+
+```{r }
+#Ordenar niveles por frecuencia
+train$quality_group = fct_infreq(train$quality_group)
+summary (train$quality_group)
+
+```
+
+
+#### Funcionales Operacionales 4: Grupo de variables de **Quantity**
+
+Hay 2 variables sobre tipo de **quantity**, vamos a analizar su similaridad y aportación Queremos ver hasta que punto una está compuesta por otra y su aportación al problema
+
+```{r }
+#Numero de levels
+print("levels quantity: ")
+length(levels(train$quantity))
+print("levels q  group : ")
+length(levels(train$quantity_group))
+
+#Diferencia de niveles con más levels
+l1 <- tolower(train$quantity)
+l2 <- tolower(train$quantity_group)
+
+print("Diferencias de niveles : ")
+print("Niveles diferentes en los de menor nivel de agregación:")
+setdiff(union(l1, l2), intersect(l1, l2))
+```
+
+Relación
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+# crear subset
+variables_extraction = c("quantity", "quantity_group")
+
+subdf= train %>% 
+  select(variables_extraction)
+
+GKmatrix1 <- GKtauDataframe(subdf)
+plot(GKmatrix1) 
+```
+Son exantamente iguales, tienen un correlación de 1 y los mismos niveles
+
+Vamos a ver relación con **variable objetivo**
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+questionr::freq(train$quantity, cum = TRUE, sort = "dec", total = TRUE)
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs extraction")
+g + geom_bar(aes(fill = quantity), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = quantity),position = "fill") 
+```
+El **56%** de la cantidad es de agua es normal. las observaciones de pozos que NO funcionan tiene más cantidad de agua clasificada como seca.
+
+Significancia
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$quantity, train$status_group_dummy)
+
+df <- train %>% 
+  select(quantity, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs quantity",
+           ylab = "Status",
+           xlab = "Quantity",
+           shade=TRUE,
+           las = 2, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group vs Quantity",
+      shade = TRUE,las=3)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+
+```
+**quantiity es significativa**. 
+
+ + La columna dry está fuertemente asociada a que no funcione el pozo.
+
+Completamos el df definitivo, la tendremos en cuenta.
+```{r }
+#Ordenar niveles por frecuencia
+train$quantity = fct_infreq(train$quantity)
+summary (train$quantity)
+
+```
+
+#### Funcionales Operacionales 5: Grupo de variables de **Source**
+
+Hay 3 variables sobre tipo de **Source**, vamos a analizar su similaridad y aportación. Queremos ver hasta que punto un está compuesta por otra y su aportación al problema
+
+```{r }
+#Numero de levels
+print("levels s  class : ")
+length(levels(train$source_class))
+print("levels s  type : ")
+length(levels(train$source_type))
+print("levels source: ")
+length(levels(train$source))
+
+#Diferencia de niveles con más levels
+l1 <- tolower(train$source_type)
+l2 <- tolower(train$source)
+
+print("Diferencias de source : ")
+print("Niveles diferentes en los de menor nivel de agregación:")
+setdiff(union(l1, l2), intersect(l1, l2))
+```
+
+Class agrupa los tipos de fuentes en 2 variables, mientras que type y source tienen niveles parecidos. La diferencia es que una separa river y lake y la otra los agrupa en un solo nivel.
+
+Relación
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+# crear subset
+variables_source = c("source_class", "source_type", "source")
+
+subdf= train %>% 
+  select(variables_source)
+
+GKmatrix1 <- GKtauDataframe(subdf)
+plot(GKmatrix1) 
+```
+Si las dos variables están muy relacionadas, vamos a elegir según su distribución de frecuencias 
+
+Visualizar una variable junto a la otra
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center'}
+#Plotear
+p <- ggplot(train,aes(x = source_type, fill =source)) + 
+    geom_bar()
+
+p + ggtitle("3 Variables operaciones sobre source") + 
+  facet_grid(source_class ~.,scales = "free") +
+  theme(strip.text.y = element_text(angle = 0, hjust = 0),
+        axis.text.x = element_text(angle = 45, hjust = 1) ) 
+```
+Source type, se diferencia de source por 2 variables 
+ + river/lake: agrupa river y lake, está ultima con poca frecuencia
+ + borehole: agrupa machine dbh y hand dtw, está ultima tiene poca frecuencia
+
+Nos quedamos con **Source type**
+
+Vamos a ver relación con **variable objetivo**
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=10, fig.height=5, fig.align='center' }
+
+questionr::freq(train$source_type, cum = TRUE, sort = "dec", total = TRUE)
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs Source Type")
+g + geom_bar(aes(fill = source_type), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = source_type),position = "fill") 
+```
+Los tipos de fuentes están **muy distribudas** por las clases. Y si **hay diferencia esta es el peso relativo** de cada tipo en las observaciones de pozos que funcionan y las que no.
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+questionr::freq(train$source_class, cum = TRUE, sort = "dec", total = TRUE)
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs Source class")
+g + geom_bar(aes(fill = source_class), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = source_class),position = "fill") 
+```
+Hay un **77%** de los datos que son  de la clase ground water, y al ver los respecto a la variable objetivo se comportan similar para cada clase.
+
+Significancia
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$source_type, train$status_group_dummy)
+
+df <- train %>% 
+  select(source_type, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs source",
+           ylab = "Status",
+           xlab = "Source Type",
+           shade=TRUE,
+           las = 2, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group vs Source type",
+      shade = TRUE,las=3)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+
+```
+Es una variable **significativa**. 
+El análisis relativo de residuos no muestra diferencias entre los tipos de fuentes, pero en el análisis de residuos si se muestra diferencias para el tipo spring y shallow well. 
+
+
+Significancia
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$source_class, train$status_group_dummy)
+
+df <- train %>% 
+  select(source_class, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs Source class",
+           ylab = "Status",
+           xlab = "Source class",
+           shade=TRUE,
+           las = 2, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group vs Source class",
+      shade = TRUE,las=3)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+
+```
+**No es una variable sinificativa**, aunque en los residuos relativos si se aprecia relaciones diferentes en función del valor de la variable objetivo.  
+
+
+Completamos el df definitivo, la tendremos en cuenta.
+```{r }
+#Ordenar niveles por frecuencia
+train$source_type = fct_infreq(train$source_type)
+summary (train$source_type)
+```
+
+#### Funcionales Operacionales 6: Grupo de variables de **Water point**
+
+Hay 2 variables sobre tipo de **Water point**, vamos a analizar su similaridad y aportación Queremos ver hasta que punto un está compuesta por otra y su aportación al problema
+
+```{r }
+#Numero de levels
+print("levels waterpoint : ")
+length(levels(train$waterpoint_type))
+print("levels w group: ")
+length(levels(train$waterpoint_type_group))
+
+#Diferencia de niveles con más levels
+l1 <- tolower(train$waterpoint_type)
+l2 <- tolower(train$waterpoint_type_group)
+
+print("Diferencias de waterpoint : ")
+print("Niveles diferentes en los de menor nivel de agregación:")
+setdiff(union(l1, l2), intersect(l1, l2))
+```
+Tienen niveles muy similares
+
+Relación
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+# crear subset
+variables_source = c("waterpoint_type", "waterpoint_type_group")
+
+subdf= train %>% 
+  select(variables_source)
+
+GKmatrix1 <- GKtauDataframe(subdf)
+plot(GKmatrix1) 
+```
+Si las dos variables están muy relacionadas, vamos a elegir según su distribución de frecuencias 
+
+Visualizar una variable junto a la otra
+```{r}
+#Plotear
+p <- ggplot(train,aes(x = waterpoint_type, fill =waterpoint_type_group)) + 
+    geom_bar()
+
+p + ggtitle("3 Variables operaciones sobre waterpoint") + 
+  facet_grid(waterpoint_type_group ~.,scales = "free") +
+  theme(strip.text.y = element_text(angle = 0, hjust = 0),
+        axis.text.x = element_text(angle = 45, hjust = 1) ) 
+```
+Water type group tiene un nivel menos, ya que desagrega communal standpipe en otro nivel más: communal standpipe multiple. Pero este ultimo nivel con muy poca frecuencia. Nos quedamos **waterpoint_type_group** aporta menos complejidad.
+
+
+Vamos a ver relación con **variable objetivo**
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+questionr::freq(train$waterpoint_type_group, cum = TRUE, sort = "dec", total = TRUE)
+
+g <- ggplot(train, aes(as.factor(status_group_dummy))) +  coord_flip() +
+  ggtitle("Status Group Vs Water point")
+g + geom_bar(aes(fill = waterpoint_type_group), position = position_stack(reverse = TRUE)) 
+
+g +geom_bar(aes(fill = waterpoint_type_group),position = "fill") 
+```
+Un **56%** de las observaciones es un punto de communal Standpipe. Y tiene más peso esta categoría junto con la de hand pump en los pozos que funcionan.
+
+
+Significancia
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+
+# Crear DF para plotear
+table <- table(train$waterpoint_type_group, train$status_group_dummy)
+
+df <- train %>% 
+  select(waterpoint_type_group, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs Water point",
+           ylab = "Status",
+           xlab = "Water point",
+           shade=TRUE,
+           las = 2, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group vs Water point",
+      shade = TRUE,las=3)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+
+```
+Es una **variable sinificativa**. Aunque el nivel más relaciona con dividir la clasificación es other.
+
+```{r }
+#Ordenar niveles por frecuencia
+train$waterpoint_type_group = fct_infreq(train$waterpoint_type_group)
+summary (train$waterpoint_type_group)
+
+```
+
+#### Funcionales Operacionales 7: **GPS height**
+Altura 
+
+Análisis
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+summary(train$gps_height)
+
+range(train$gps_height, na.rm = TRUE)
+
+p <- ggplot(train, aes(x=gps_height)) + 
+        geom_histogram()
+p 
+p +  scale_x_log10() 
+p + scale_y_sqrt() 
+```
+El **rango es amplio** además se concentra cerca del 0, es necesario una **transformación logaritmica** para ver mejor las diferencias.
+
+
+En relación con **la variable objetivo**
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+
+p <- ggplot(train, aes(x = gps_height)) +
+              geom_density(aes(group=status_group_dummy, colour=status_group_dummy)) 
+p
+p +  scale_x_log10()
+p +  scale_x_sqrt()
+
+```
+se ve un un poco de diferencia al principio y al final. 
+
+Evaluamos si creamos **una variable** que agrupe en niveles la altura a la que se encuentra el pozo:
+
+```{r}
+quantile(train$gps_height, na.rm= TRUE)
+train$gps_height_fac <- quartiles <- quantcut( as.numeric(train$gps_height), 3, na.rm=TRUE  )
+summary(train$gps_height_fac)
+levels(train$gps_height_fac)[levels(train$gps_height_fac)=="[-90,0]"] <- "negativo"
+levels(train$gps_height_fac)[levels(train$gps_height_fac)== "(0,1.16e+03]"] <- "bajo"
+levels(train$gps_height_fac)[levels(train$gps_height_fac)== "(1.16e+03,2.63e+03]"] <- "alto"
+describe(train$gps_height_fac)
+```
+
+       
+| Nombre de nueva variable |Rango que agrupa                            | 
+|:-------------------------|:------------------------------------------:|
+| negativo                      | [-90,0]                          |      
+| bajo                   | (0,1.16e+03]                           |        
+| medio                    | (1.16e+03,2.63e+03]                     |       
+
+Ver relación con variable objetivo:
+```{r}
+# Crear DF para plotear
+table <- table(train$gps_height_fac, train$status_group_dummy)
+
+df <- train %>% 
+  select(gps_height_fac, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs gps Height",
+           ylab = "Status",
+           xlab = "gps height factor",
+           shade=TRUE,
+           las = 1, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group  vs gps height factor",
+      shade = TRUE)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+```
+GPS Height factor es sinificativa
+
+```{r}
+#Ordenar niveles por frecuencia
+train$gps_height_fac = fct_infreq(train$gps_height_fac)
+summary (train$gps_height_fac)
+
+```
+
+
+
+
+#### Funcionales Operacionales 8 : **Population**
+Nivel de población cerca de la población cerca del pueblo 
+
+Análisis
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+summary(train$population)
+
+range(train$population, na.rm = TRUE)
+
+p <- ggplot(train, aes(x=population)) + 
+        geom_histogram()
+p 
+p +  scale_x_log10() 
+p + scale_y_sqrt() 
+```
+El **rango es amplio** además se concentra cerca del 0, es necesario una **transformación logaritmica** para ver mejor las diferencias.
+
+En relación con **la variable objetivo**
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center'}
+
+p <- ggplot(train, aes(x = population)) +
+              geom_density(aes(group=status_group_dummy, colour=status_group_dummy)) 
+p
+p +  scale_x_log10()
+p +  scale_x_sqrt()
+
+```
+
+
+Creamos **una variable** que agrupe en tres niveles la población que utiliza el pozo:
+
+```{r}
+
+library(gtools)
+quantile(train$population, na.rm= TRUE)
+train$population_fac <- quartiles <- quantcut( log(as.numeric(train$population)), 3, na.rm=TRUE  )
+summary(train$population_fac)
+levels(train$population_fac)[levels(train$population_fac)=="-"] <- "Low"
+levels(train$population_fac)[levels(train$population_fac)=="(-,5.01]"] <- "Medium"
+levels(train$population_fac)[levels(train$population_fac)=="(5.01,10.3]"] <- "Large"
+summary(train$population_fac)
+```
+Es una variable que destaca, más que la cantidad cuantitativa de población. Probamos a crear una nueva variable factor donde cálculamos los quantiles para crear un variable que divida en  3 niveles la población que utiliza el pozo.
+       
+| Nombre de nueva variable |Rango que agrupa                            | Volumen Datos  |
+|:-------------------------|:------------------------------------------:|---------------:|
+| Low                      | [0]                                       | 14.920|       
+| Medium                   | (0, 5.01]                                 | 14.014|       
+| Large                    | (5.01, 10.3]                              | 12.646|       
+
+Ver relación con variable objetivo:
+```{r}
+# Crear DF para plotear
+table <- table(train$population_fac, train$status_group_dummy)
+
+df <- train %>% 
+  select(population_fac, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group vs Población factor ",
+           ylab = "Status",
+           xlab = "Management group",
+           shade=TRUE,
+           las = 1, color = TRUE,
+           border = "chocolate",
+           off = 30)
+
+
+assoc(table,main = "status group  vs Pobalcion factor",
+      shade = TRUE)
+
+chisq1 <- chisq.test(table) 
+chisq1
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+```
+Es una variable que **NO ES significativa**, el **nivel medio de población** está fuertemente asociado a que el pozo funcione y el nivel bajo frecuentemente asociado que no funcione.
+
+```{r}
+#Ordenar niveles por frecuencia
+train$population_fac = fct_infreq(train$population_fac)
+summary (train$population_fac)
+
+```
+
+### Otro : Variable date recorded
+Cuando se han grabado los datos
+```{r, warning=FALSE}
+#df$date_recorded <- NULL, jaime lo hizo, quiza lo del null le afecte
+train$date_recorded <- train$date_recorded 
+
+#df <- df[colnames(df)[c(1,2,37,3:36)]] #porque ??
+
+str(train$date_recorded)
+library(lubridate)
+train$date_recorded <- ymd(train$date_recorded)
+str(train$date_recorded)
+
+range(train$date_recorded, na.rm = TRUE)
+
+p <- ggplot(train, aes(x=date_recorded)) + 
+        geom_histogram(bins = 30)
+p + scale_x_date(date_breaks = "10 months",date_labels = "%b %y",limits = c(as.Date("2010-05-01"),as.Date("2014-04-01") ))
+
+```
+Están los datos concentrados en "2002-10-14" "2013-12-03".
+
+
+### Análisis de Variables Geográficas
+Hay 8 variable relacionadas con información geográfica.
+
+Según [wikipedia la organización geografica de Tanzania](https://en.wikipedia.org/wiki/Subdivisions_of_Tanzania) es las regiones se subdividen en distritos, los distritos se subdividen en  subvillages. y luego está  "lga" (Autoridad de Gobierno Local) 
+
+La región es el nivel más alto, menos valores faltantes y el que en el futuro  siempre vendrá relleno
+
+```{r}
+variables_factor_geo_todas = c("region","basin", "lga", "ward", "subvillage")
+lapply(train[,variables_factor_geo_todas], function(x) length(unique(x)))
+
+na_count <-sapply(x, function(y) sum(length(which(is.na(y)))))
+df = train %>% 
+  select(variables_factor_geo_todas)
+
+sapply(df, function(x) sum(is.na(x)))
+```
+
+Nos quedamos con las 3 variables con **menos niveles y menos NAs**:**basin, region, lga** , ya que las direcciones unicas las tenemos con Latitud y longitud y los campos con más niveles son strings con mucha suciedad en los textos ya que están escritos a mano.
+
+```{r}
+variables_factor_geo = c("basin","region")
+
+print("rangos basin: total y porcentaje")
+frequencias_basin <- train$basin %>%
+  table() %>%
+  prop.table() %>% {. * 100} %>% 
+  round(2)
+range(summary(train$basin))
+range(frequencias_basin)
+
+print("rangos region: total y porcentaje")
+frequencias_region <- train$region %>%
+  table() %>%
+  prop.table() %>% {. * 100} %>% 
+  round(2)
+range(summary(train$region))
+range(frequencias_region)
+
+print("rangos lga: total y porcentaje")
+frequencias_lga <- train$lga %>%
+  table() %>%
+  prop.table() %>% {. * 100} %>% 
+  round(2)
+range(summary(train$lga))
+range(frequencias_lga)
+
+hist(frequencias_basin)
+hist(frequencias_region)
+hist(frequencias_lga)
+
+lapply(train[,variables_factor_geo], freq)
+```
+
+La variable lga está muy concentrada en valores con poca frecuencía. La descartamos 
+A través de regresión logaritmica veremos cuál de los 2 restantes, **basin y region**, aporta más niveles de agregación.
+
+
+**latitud y longitud** :  tienen 1812 valores desconocidos (representados como 0). Decidimos estos valores como valores desconocidos NAs, ya que las latitudes y longitudes de Tanzania oscilan entre[-13, 0,25] y[28, 42] respectivamente.
+
+Esto se aprecia claramente en el siguiente mapa:
+
+```{r}
+map1 <- train %>% select(latitude, longitude, status_group_dummy) 
+
+leaflet() %>% addTiles() %>% addMarkers(lat = map1$latitude,
+                                        lng = map1$longitude, group = "status_group_dummy",
+                                        clusterOptions = markerClusterOptions()) %>% addProviderTiles(providers$OpenStreetMap)
+```
+
+Limpieza de varibales de geolocalización:
+
+```{r}
+train$longitude [round(train$longitude, digits = 0) == 0] <- NA
+train$latitude [round(train$latitude, digits = 0) == 0] <- NA
+```
+
+A continuación observamos que tras eliminar los valores de latitud y longitud igual a 0 nos quedamos con pozos cuya geolocalización se encuentra dentro de los límites del territorio de Tanzania.
+
+El mapa interactivo que se muestra a continuación realiza agregacines de los clusters en función de su localización y según la variable objetivo de 
+
+```{r}
+map2 <- train %>% select(latitude, longitude, status_group_dummy) 
+
+leaflet() %>% addTiles() %>% addMarkers(lat = map2$latitude,
+                                        lng = map2$longitude, group = "status_group_dummy",
+                                        clusterOptions = markerClusterOptions()) %>% addProviderTiles(providers$OpenStreetMap)
+```
+
+Creamos variable de zona (ne-no-se-so) a partir de la latitud y longitud:
+
+```{r}
+latitud_media = ((min(train$latitude, na.rm = TRUE) - max(train$latitude, na.rm = TRUE))/2)+max(train$latitude, na.rm = TRUE)
+
+longitud_media = ((max(train$longitude, na.rm = TRUE) - min(train$longitude, na.rm = TRUE))/2)+min(train$longitude, na.rm = TRUE)
+
+train$location_zone <- with(train, ifelse(latitude >= latitud_media & longitude >= longitud_media, 'ne', ifelse(latitude < latitud_media & longitude >= longitud_media , 'se', ifelse(latitude < latitud_media & longitude < longitud_media , 'so', 'no'))))
+
+```
+
+
+```{r }
+library(questionr)
+questionr::freq(train$location_zone, cum = TRUE, sort = "dec", total = TRUE)
+```
+Los niveles de la variable tiene distribución muy repartida.
+
+Respecto a objetivo
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=6, fig.height=3, fig.align='center' }
+g <- ggplot(train, aes(as.factor(status_group_dummy)))
+g + geom_bar(aes(fill = location_zone), position = position_stack(reverse = TRUE)) +
+ coord_flip() +
+ theme(legend.position = "top")
+
+ggplot(train) +
+  aes(x = as.factor(status_group_dummy) , fill = location_zone) +
+  geom_bar(position = "fill") +
+ coord_flip()
+
+# Crear DF para plotear
+table <- table(train$location_zone, train$status_group_dummy)
+df <- train %>% 
+  select(location_zone, status_group_dummy)
+
+mosaicplot(table, 
+           main = "Status group 3 niveles versus location zones",
+           sub = "Product Colors by Country",
+           ylab = "Status Group ",
+           xlab = "location zone",
+           las = 1, color = TRUE)
+
+assoc(table,main = "status group location_zone",
+      shade = TRUE, xscale = 0.4, yscale = 0.4,yspace = unit(0.7, "lines"),
+      spacing = spacing_conditional(sp = 0), spacing_args = list())
+
+tabla_job1 <- table(train$location_zone, train$status_group_dummy)
+chisq1 <- chisq.test(tabla_job1)
+chisq1
+chisq1$residuals 
+
+corrplot(chisq1$residuals, is.cor = FALSE)
+
+contrib <- 100*chisq1$residuals^2/chisq1$statistic
+corrplot(contrib, is.cor = FALSE)
+```
+Es una variable **relevante**.
+* ne y so están frecuentemente asociada a que funciones
+* no está fuertemente asociada a que no funciones
+
+
+```{r}
+#Ordenar niveles por frecuencia
+train$location_zone = fct_infreq(train$location_zone)
+summary (train$location_zone)
+```
+
+
+
+## Dataset de trabajo
+
+Nuevo dataset con las variables de estudio que nos interesan: 
+
+```{r}
+variables_seleccionadas = c("management",  "payment",  "construction_yearY", "amount_tsh", "public_meeting", "extraction_type_class", "quality_group", "quantity", "source_type", "waterpoint_type_group", "gps_height", "gps_height_fac" ,"population", "date_recorded", "location_zone", "region")
+
+train_final = train[,variables_seleccionadas]
+```
+
+# MODELOS
+
+## Feature Selection a traves de modelos: Regresión Logística "en bruto"
+
+Hemos realizado una reducción previa de variables ya que al realizar un regresión logistica con todo el dataset había mucha correlación entre variables vaibles. Ahora con un numero de varabiables más manejable, vamos a tratar de evaluar su valor a la hora de explicar si un pozo funciona o no.
+
+```{r}
+# payment o payment periodic
+todo_pay = as.factor(status_group_dummy) ~   management + payment + construction_yearY + amount_tsh + public_meeting + extraction_type_class +quality_group + quantity + source_type + waterpoint_type_group + gps_height +  gps_height_fac + population  + date_recorded + location_zone + region
+
+todo_pay_perio = as.factor(status_group_dummy) ~   management  +periodic_payment + construction_yearY + amount_tsh + public_meeting + extraction_type_class +quality_group + quantity + source_type + waterpoint_type_group + gps_height +  gps_height_fac + population  + date_recorded + location_zone + region
+
+
+glm_pay = glm(todo_pay, family="binomial", data=train)
+glm_pay_perio = glm(todo_pay_perio, family="binomial", data=train)
+
+print("es payment mejor modelo que payment periodic ")
+glm_pay$aic < glm_pay_perio$aic
+glm_pay$aic - glm_pay_perio$aic
+
+```
+Es mejor modelo **pay periodic**, tiene menor AIC y menos niveles.
+
+Aunque en ambos casos los niveles de las variables no son significativas.
+
+```{r}
+# GPS VS GPS FACTOR
+todo_gps = as.factor(status_group_dummy) ~   management + periodic_payment + construction_yearY  + amount_tsh + extraction_type_class +quality_group + quantity + source_type + waterpoint_type_group + gps_height + population  + date_recorded + location_zone + region
+
+todo_gps_fac = as.factor(status_group_dummy) ~   management  +periodic_payment + construction_yearY + amount_tsh  + extraction_type_class + quality_group + quantity + source_type + waterpoint_type_group + gps_height_fac + population  + date_recorded + location_zone + region
+
+glm_gps = glm(todo_gps, family="binomial", data=train)
+glm_gps_fac = glm(todo_gps_fac, family="binomial", data=train)
+print("es gps mejor modelo que gps factor ")
+glm_gps$aic < glm_gps_fac$aic
+glm_gps$aic - glm_gps_fac$aic
+
+#summary(glm_gps_fac)
+```
+Es mejor modelo si incluimos gps como 3 niveles.
+
+
+```{r}
+# Region y Noroeste
+todo_loc = as.factor(status_group_dummy) ~   management + periodic_payment + construction_yearY  + amount_tsh + extraction_type_class +quality_group + quantity + source_type + waterpoint_type_group + gps_height_fac + population  + date_recorded + location_zone
+
+todo_reg = as.factor(status_group_dummy) ~   management  +periodic_payment + construction_yearY + amount_tsh  + extraction_type_class + quality_group + quantity + source_type + waterpoint_type_group + gps_height_fac  + population + date_recorded + region 
+
+glm_loc = glm(todo_loc, family="binomial", data=train)
+glm_reg = glm(todo_reg, family="binomial", data=train)
+print("es location mejor modelo que region ")
+glm_loc$aic < glm_reg$aic
+glm_loc$aic - glm_reg$aic
+
+```
+Es mejor modelo región, aunque levemente.
+
+Summary de modelo final 
+```{r}
+summary(glm_reg)
+```
+
+
+```{r}
+
+variables_seleccionadas2 = c( "management", "periodic_payment" , "construction_yearY", "amount_tsh" , "extraction_type_class", "quality_group", "quantity", "source_type", "waterpoint_type_group", "gps_height_fac", "population", "date_recorded", "region", "status_group_dummy")
+
+train_final2 = train[,variables_seleccionadas2]
+```
+
+ Visualización de valores faltantes
+```{r}
+aggr_plot <- aggr(train_final2, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE,
+                  labels=names(train_final2), cex.axis=.7, gap=3,
+                  ylab=c("Histogram of missing data","Pattern"))
+```
+
+
+## Aprendizaje Basado en Similaridad. Clustering
+
+
+EL objetivo del clustering es obtener similaridades entre diferentes subconjuntos de los datos. Este método se usa generalmente para explorar datos previo a metodos de aprendizaje supervisado.
+
+Definimos un sample del dataset original de train con las variables seleccionadas para el modelo y otro con la variable objetivo para poder aplicar los algoritmos de clustering.
+
+```{r}
+set.seed(1)
+dendro.df <- train%>%select( variables_seleccionadas2, -status_group_dummy) %>% sample_frac(size = 0.05)
+
+dendro.stat_group <- train %>% select(status_group_dummy) %>% sample_frac(size = 0.05)
+```
+
+Diferentes algoritmos de clustering llevan a obtener diferentes resultados. Por ello vamos a explorar los 8 algoritmos posibles implementados con "hclust"
+
+```{r, warning=FALSE}
+hclust_methods <- c("ward.D", "single", "complete", "average", "mcquitty", 
+        "median", "centroid", "ward.D2")
+pump_dendlist <- dendlist()
+for(i in seq_along(hclust_methods)) {
+   hc_pump <- hclust(dist(dendro.df), method = hclust_methods[i])   
+   pump_dendlist <- dendlist(pump_dendlist, as.dendrogram(hc_pump))
+}
+names(pump_dendlist) <- hclust_methods
+pump_dendlist
+```
+
+A continuación ploteamos los dendogramas para cada uno de los 8 métodos posibles:
+
+
+```{r, warning=FALSE,  fig.height=9, fig.width=6}
+par(mfrow = c(4,2))
+for(i in 1:8) {
+   pump_dendlist[[i]] %>% set("branches_k_color", k=2) %>% set("labels", NULL) %>% plot(axes = FALSE, horiz = FALSE)
+   title(names(pump_dendlist)[i])
+}
+```
+
+Decidimos continuar el estudio fijando el metódo "ward.D2" por considerar que este puede ser el que arroje mejores resultados. Se muestra el dendograma y definimos 4 clusters dentro del subset de los datos cada uno en un color.
+
+```{r, warning=FALSE}
+cluster.model = hclust(dist(dendro.df), method = "ward.D2")
+dendro = as.dendrogram(cluster.model)
+dendro = color_branches(dendro, k=4)
+dendro %>% set("labels", NULL) %>% plot(nodePar = list(cex = .007))
+```
+
+
+Realizamos una tabla de comparación de las observaciones de cada uno de esos cuatro clusters frente a la variable objetivo y calculamos la proporción de pozos funcionales en cada uno de los cuatro grupos.
+
+```{r}
+groups = cutree(cluster.model, k = 4)
+a = table(dendro.stat_group$status_group_dummy, groups)
+a
+a[2,]/(a[1,]+a[2,])
+
+```
+
+Observamos que la mayoría de las observaciones se agrupan en los clusters 1 y 2, lo que nos lleva a pensar que el número de clusters es demasiado elevado.
+
+Realizamos nuevamente los cálculos reduciendo el número de clusters a 2.
+
+```{r, warning=FALSE}
+groups2 = cutree(cluster.model, k = 2)
+a2 = table(dendro.stat_group$status_group_dummy, groups2)
+a2
+a2[2,]/(a2[1,]+a2[2,])
+```
+
+Lo que observamos es que este algoritmo de clustering con las variables seleccionadas no es el adecuado para agrupar las observaciones por similaridad frente a la variable objetivo status_group_dummy pues.
+
+Procedemos ahora a realizar una visualización de la distribución de cada una de las variables seleccionadas en cada uno de los clusters: 
+
+```{r, fig.height=9, fig.width=6}
+par(mfrow = c(4,2))
+plot(table(groups2,dendro.df$management))
+plot(table(groups2,dendro.df$periodic_payment))
+plot(table(groups2,dendro.df$extraction_type_class))
+plot(table(groups2,dendro.df$quantity))
+plot(table(groups2,dendro.df$source_type))
+plot(table(groups2,dendro.df$waterpoint_type_group))
+plot(table(groups2,dendro.df$gps_height_fac))
+plot(table(groups2,dendro.df$region))
+```
+
+Sigue presente patente la importancia del valor vwc dentro de management, así como gravity en tipo de extracción, enough en quantity, comunal standipipe para waterpoint_type_group population.
+
+
+### Uso del tree para evaluar variables relevantes
+
+```{r, warning=FALSE}
+require(tree)
+train_final2<- na.omit(train_final2)
+
+tree.c=tree(as.factor(status_group_dummy)~.,data=train_final2,na.action = na.pass)
+summary(tree.c)
+plot(tree.c)
+text(tree.c,pretty=2)
+```
+5 niveles reducen las desviación 
+
+```{r, warning=FALSE}
+tree.c=tree(as.factor(status_group_dummy)~.,data=train_final2)
+prune.trees <- prune.misclass(tree.c, best=8)
+plot(prune.trees)
+text(prune.trees, pretty=0)
+```
+
+Estás son las variables relevantes según tree y cluster, estas son las variables selecionadas para hacer el modelo
+
+```{r}
+variables_seleccionadas3 = c("quantity", "waterpoint_type_group", "region", "management", "status_group_dummy")
+
+train_final3 = train[,variables_seleccionadas3]
+
+```
+
+### Modificaciónes aplicadas a test para ver las predicciones
+
+## Regresión Logística Binomial final
+Modelo 
+
+Predicción
+```{r}
+glm.fit=glm(status_group_dummy~. ,data=train_final3,family=binomial)
+summary(glm.fit)
+glm.probs=predict(glm.fit,type="response") 
+glm.probs[1:5]
+glm.pred=ifelse(glm.probs>0.5,"No funciona","funciona")
+```
+
+## Evaluación del modelo
+
+### Métricas de train
+Predicho 
+```{r}
+#quitar
+glm.probs=predict(glm.fit,type="response") 
+glm.probs[1:5]
+glm.pred=ifelse(glm.probs>0.5,"No funciona","funciona")
+table(glm.pred)
+table(train_final3$status_group_dummy)
+```
+
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center'}
+logitMod <- glm(status_group_dummy~. ,data=train_final3, family=binomial(link="logit"))
+
+library(caret)
+# Use your model to make predictions, in this example newdata = training set, but replace with your test set    
+pdata <- predict(logitMod, newdata = train_final3, type = "response")
+
+#table(pred, truth)
+
+
+# use caret and compute a confusion matrix, da error niveles
+#confusionMatrix(data = as.numeric(pdata>0.5), reference = train$status_group_dummy)
+
+#table(pred, truth)
+xtab <-table(as.numeric(pdata>0.5), train$status_group_dummy)
+confusionMatrix(xtab)
+
+
+```
+El clasificador tiene un Acuracy de más de un 70%. 
+
+Tienen una sensibilibdad de 0.51 --> predice mal los positivos (poco mejor que un 50% )
+$$
+\text{Sens} = \text{True Positive Rate} = \frac{\text{TP}}{\text{P}} = \frac{\text{TP}}{\text{TP + FN}}
+$$
+Tiene una especificidad de 0.89 --> Predice mejor los negativos
+$$
+\text{Spec} = \text{True Negative Rate} = \frac{\text{TN}}{\text{N}} = \frac{\text{TN}}{\text{TN + FP}}
+$$
+Viendo la prevalencia, no están balanceados los casos
+
+### Validación test
+
+Cambios en test iguales a train
+```{r ,message=FALSE ,  warning=FALSE, error=FALSE, echo=TRUE, fig.width=8, fig.height=4, fig.align='center' }
+test$status_group_dummy <- with(test, ifelse(status_group=='non functional' | status_group=='functional needs repair',
+                                               0, 1))
+
+test[ test == "unknown" ] <- NA
+test[ test == "Unknown" ] <- NA
+test[ test == "None" ] <- NA
+
+test[] <- lapply(test, function(x) if(is.factor(x)) factor(x) else x)
+
+
+variables_seleccionadas3 = c("quantity", "waterpoint_type_group", "region", "management", "status_group_dummy")
+
+test_final3 = test[,variables_seleccionadas3]
+
+```
+
+
+Aplicación del modelo al test
+```{r}
+
+logitMod_test <- glm(status_group_dummy~. ,data=test_final3, family=binomial(link="logit"))
+
+pdata_t <- predict(logitMod_test, newdata = test_final3, type = "response")
+
+#table(pred, truth)
+
+
+# use caret and compute a confusion matrix, da error niveles
+#confusionMatrix(data = as.numeric(pdata>0.5), reference = train$status_group_dummy)
+
+#table(pred, truth)
+xtab_t <-table(as.numeric(pdata_t>0.5), test$status_group_dummy)
+confusionMatrix(xtab_t)
+
+
+
+```
+
+Baja un poco el accuracy, y sube levemente la sensitividad (detectar positivos) y la especificidad
+
+

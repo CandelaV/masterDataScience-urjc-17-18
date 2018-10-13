@@ -1,0 +1,741 @@
+---
+title: 'Pump it Up: Data Mining the Water Table'
+author: "Leda Duelo, Javier Llorente, Candela Vidal, Jaime Zamorano"
+date: "Julio de 2018"
+output:
+
+  html_document:
+    toc: yes
+    toc_depth: '5'
+mainfont: Roboto Light
+fontsize: 12pt
+---
+
+# Descripción del problema
+
+Se prodece a aplicar una serie de modelos sobre el dataset limpio con el fin de seleccionar el más adecuado para predecir la variable respuesta.
+
+
+## Establecer parametros iniciales 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
+
+#librerias
+if(!require("dplyr")){
+  install.packages("dplyr")
+  library("dplyr")
+}
+if(!require("tidyr")){
+  install.packages("tidyr")
+  library("tidyr")
+}
+if(!require("stargazer")){
+  install.packages("stargazer")
+  library("stargazer")
+}
+if(!require("leaflet")){
+  install.packages("leaflet")
+  library("leaflet")
+}
+if(!require("ggplot2")){
+  install.packages("ggplot2")
+  library("ggplot2")
+}
+if(!require("lubridate")){
+  install.packages("lubridate")
+  library("lubridate")
+}
+if(!require("gtools")){
+  install.packages("gtools")
+  library("gtools")
+}
+if(!require("dendextend")){
+  install.packages("dendextend")
+  library("dendextend")
+}
+if(!require("tree")){
+  install.packages("tree")
+  library("tree")
+}
+if(!require("feather")){
+  install.packages("feather")
+  library("feather")
+}
+if(!require("ipred")){
+  install.packages("ipred")
+  library("ipred")
+}
+if(!require("rpart")){
+  install.packages("rpart")
+  library("rpart")
+}
+if(!require("rpart.plot")){
+  install.packages("rpart.plot")
+  library("rpart.plot")
+}
+if(!require("randomForest")){
+  install.packages("randomForest")
+  library("randomForest")
+}
+if(!require("e1071")){
+  install.packages("e1071")
+  library("e1071")
+}
+if(!require("ROCR")){
+  install.packages("ROCR")
+  library("ROCR")
+}
+if(!require("caret")){
+  install.packages("caret")
+  library("caret")
+}
+if(!require("pROC")){
+  install.packages("pROC")
+  library("pROC")
+}
+
+setwd("~/Desktop/urjc/7. T2 Machine learning - Mineria /practica_machine_pozos/Práctica Minería_juniobook")
+``` 
+
+
+
+## Carga de los Datos
+
+Disponemos de dos datasets con los que entrenaremos y probaremos los modelos. Ambos datasets estan compuestos de 9 variables (8 predictores + 1 variable respuesta).
+
+La diferencia entre ambos datasets radica en que al dataset con sufijo "B" le han sido aplicadas técnicas de recucción de dimensiones en las variables.
+
+Con esto conseguiremos una comparativa no solo entre distintos modelos predictivos, sino también, entre dos técnicas distintas de selección y preparación de predictores.
+
+```{r}
+df_3 <- read_feather("Datasets/train3_v2.feather")
+df_3B <- read_feather("Datasets/train3_B_vbles_imp_v2.feather")
+
+df_3_test <- read_feather("Datasets/test3_v2.feather")
+df_3B_test <- read_feather("Datasets/test3_B_vbles_imp_v2.feather")
+```
+
+
+```{r}
+str(df_3)
+str(df_3B)
+
+str(df_3_test)
+str(df_3B_test)
+```
+
+
+# Modelos 
+
+## Regresión Logística
+
+El primer modelo, ya implementado en la primera parte de esta asignatura es Regresión logística binomial.
+
+### Aplicación Modelo
+
+Entrenamos el modelo con los 2 datasets descritos anteriormente y calculamos las predicciones en test.
+
+```{r}
+lr_3 <- glm(status_group_dummy ~ ., data = df_3, family = binomial(logit))
+predictions_lr_train <- predict(lr_3, newdata = df_3, type = "response")
+table(pred = predictions_lr_train > 0.5, obs = df_3$status_group_dummy)
+```
+
+```{r}
+lr_3B <- glm(status_group_dummy ~ ., data = df_3B, family = binomial(logit))
+predictions_lr_train_B <- predict(lr_3B, newdata = df_3B, type = "response")
+table(pred = predictions_lr_train_B > 0.5, obs = df_3B$status_group_dummy)
+```
+
+### Evaluación Modelo
+
+Procedemos a calcular las curvas ROC y matriz de confusión para ambos datasets
+
+```{r}
+#CURVA ROC
+predictions_lr <- predict(lr_3, newdata = df_3_test, type = "response")
+pred_lr = prediction(predictions_lr, df_3_test$status_group_dummy)
+pref_lr = performance(pred_lr, "tpr", "fpr")
+plot(pref_lr)
+```
+```{r}
+#CURVA ROC
+predictions_lr_B <- predict(lr_3B, newdata = df_3B_test, type = "response")
+pred_lr_B = prediction(predictions_lr_B, df_3B_test$status_group_dummy)
+pref_lr_B = performance(pred_lr_B, "tpr", "fpr")
+plot(pref_lr_B)
+```
+
+```{r}
+#MATRIX
+tab_lr = table(pred = predictions_lr > 0.5, obs = df_3_test$status_group_dummy)
+ntest = sum(tab_lr)
+acierto_lr = sum(diag(tab_lr))/ntest
+acierto_lr
+tab_lr
+```
+
+
+```{r}
+#MATRIX
+tab_lr_B = table(pred = predictions_lr_B > 0.5, obs = df_3B_test$status_group_dummy)
+ntest = sum(tab_lr_B)
+acierto_lr_B = sum(diag(tab_lr_B))/ntest
+acierto_lr_B
+tab_lr_B
+```
+
+Observamos que para este modelo obtenemos mejores resultados con el feather sin reducción de dimensiones en las variables, siendo el acierto superior en 4 puntos porcentuales.
+
+## Tree
+
+### Aplicación Modelo
+
+```{r}
+set.seed(3)
+tree_3 = rpart(status_group_dummy ~ ., data = df_3)
+
+rpart.plot(tree_3)
+tree_3
+```
+
+```{r}
+set.seed(3)
+tree_3B = rpart(status_group_dummy ~ ., data = df_3B)
+
+rpart.plot(tree_3B)
+tree_3B
+```
+
+Pruning:
+
+Procedemos a podar el modelo de Tree generado para ambos dataframes buscando minimizar el error.
+
+```{r}
+
+tree_3$cptable[which.min(tree_3$cptable[, "xerror"]),"CP"]
+plotcp(tree_3)
+
+prune_tree_3 = prune(tree_3, cp = tree_3$cptable[which.min(tree_3$cptable[,"xerror"]), "CP"])
+
+print(prune_tree_3)
+rpart.plot(prune_tree_3, uniform = TRUE, main = "Pruned Classification Tree",sub = "")
+
+```
+
+Observamos para el dataframe no B solo son predictores relevantes en la clasificación la cantidad de agua del pozo y el tipo de waterpoint. Resultando que el pozo no funcionará si está seco o si aun teniendo agua pertenece a la categoría general de "other" en waterpoint_type_group.
+
+```{r}
+
+tree_3B$cptable[which.min(tree_3B$cptable[, "xerror"]),"CP"]
+plotcp(tree_3B)
+
+prune_tree_3B = prune(tree_3B, cp = tree_3B$cptable[which.min(tree_3B$cptable[,"xerror"]), "CP"])
+
+print(prune_tree_3B)
+rpart.plot(prune_tree_3B, uniform = TRUE, main = "Pruned Classification Tree",sub = "")
+
+```
+
+Para el dataframe con reducción de variables además se incluye el predictor region como decisivo en la clasificación del funcionamiento o no del pozo.
+
+### Evaluación de Modelo
+
+Calculamos nuevamente para ambos modelos las curvas ROC, matriz de confusión y porcentaje de acierto total.
+
+```{r}
+#CURVA ROC
+predictions_tr <- predict(prune_tree_3, newdata = df_3_test, type = "prob")
+pred_tr = prediction(predictions_tr[,2], df_3_test$status_group_dummy)
+pref_tr = performance(pred_tr, "tpr", "fpr")
+plot(pref_tr)
+```
+```{r}
+#CURVA ROC
+predictions_tr_B <- predict(prune_tree_3B, newdata = df_3B_test, type = "prob")
+pred_tr_B = prediction(predictions_tr_B[,2], df_3B_test$status_group_dummy)
+pref_tr_B = performance(pred_tr_B, "tpr", "fpr")
+plot(pref_tr_B)
+```
+
+```{r}
+#MATRIZ
+tab_tree = table(pred = predict(prune_tree_3, df_3_test, type = "class"),obs = df_3_test$status_group_dummy)
+ntest = sum(tab_tree)
+acierto_tree = sum(diag(tab_tree))/ntest
+acierto_tree
+tab_tree
+```
+
+```{r}
+#MATRIZ
+tab_tree_B = table(pred = predict(prune_tree_3B, df_3B_test, type = "class"),obs = df_3B_test$status_group_dummy)
+ntest = sum(tab_tree_B)
+acierto_tree_B = sum(diag(tab_tree_B))/ntest
+acierto_tree_B
+tab_tree_B
+```
+
+Observamos que con este modelo y para ambos dataframes se obtienen resultados peores que para el primer modelo de regresión logística.
+
+## Bagging
+
+### Aplicación Modelo
+
+```{r}
+bagging_3 <- bagging(status_group_dummy ~ ., data = df_3, nbagg = 10, coob = TRUE, control = rpart.control(maxdepth = 4,minsplit = 50))
+```
+
+```{r}
+bagging_3B <- bagging(status_group_dummy ~ ., data = df_3B, nbagg = 10, coob = TRUE, control = rpart.control(maxdepth = 4,minsplit = 50))
+```
+
+### Evaluación Modelo
+
+Dibujamos a continuación las curvas ROC de ambos dataframes, así como calculamos la matriz de confusión y el accuracy.
+
+```{r}
+#CURVA ROC
+predictions_bg <- predict(bagging_3, newdata = df_3_test, type = "prob")
+pred_bg = prediction(predictions_bg[,2], df_3_test$status_group_dummy)
+pref_bg = performance(pred_bg, "tpr", "fpr")
+plot(pref_bg)
+```
+```{r}
+#CURVA ROC
+predictions_bg_B <- predict(bagging_3B, newdata = df_3B_test, type = "prob")
+pred_bg_B = prediction(predictions_bg_B[,2], df_3B_test$status_group_dummy)
+pref_bg_B = performance(pred_bg_B, "tpr", "fpr")
+plot(pref_bg_B)
+```
+
+```{r}
+#MATRIZ
+tab_bg = table(pred = predict(bagging_3, df_3_test, type = "class"),obs = df_3_test$status_group_dummy)
+ntest = sum(tab_bg)
+acierto_bg = sum(diag(tab_bg))/ntest
+acierto_bg
+tab_bg
+```
+
+```{r}
+#MATRIZ
+tab_bg_B = table(pred = predict(bagging_3B, df_3B_test, type = "class"),obs = df_3B_test$status_group_dummy)
+ntest = sum(tab_bg_B)
+acierto_bg_B = sum(diag(tab_bg_B))/ntest
+acierto_bg_B
+tab_bg_B
+```
+
+Se obtien los mismos resultados que con el modelo Tree y por tanto peor que regresión logística.
+
+## Random Forest
+
+### Optimización de hiperparámetros
+El numero de arboles en r indicamos 300 que es el parametro que hace que nuestros ordenadores no exploten :)
+
+Seguimos las indicacciones [indicacciones](https://rpubs.com/Joaquin_AR/255596) para optimización de parametros.  
+Indicamos el argumento **mtry**, **predictores** a utilizar, por defecto la función emplea √p con árboles de clasificación. Sin embargo, en lugar de emplear estos valores, identificamos el valor óptimo estudiando el out-of-bag-MSE en función del número de predictores evaluados en cada división. 
+```{r}
+tuning_rf_mtry <- function(df, y, ntree = 300){
+  # Esta función devuelve el out-of-bag clasification error de un modelo RandomForest
+  # en función del número de predictores evaluados (mtry)
+  
+  # Argumentos:
+  #   df = data frame con los predictores y variable respuesta
+  #   y  = nombre de la variable respuesta
+  #   ntree = número de árboles creados en el modelo randomForest
+  
+  require(dplyr)
+  max_predictores <- ncol(df) - 1
+  n_predictores   <- rep(NA, max_predictores)
+  oob_err_rate    <- rep(NA, max_predictores)
+  for (i in 1:max_predictores) {
+    set.seed(123)
+    f <- formula(paste(y,"~ ."))
+    modelo_rf <- randomForest(formula = f, data = df, mtry = i, ntree = ntree)
+    n_predictores[i] <- i
+    oob_err_rate[i] <- tail(modelo_rf$err.rate[, 1], n = 1)
+  }
+  results <- data_frame(n_predictores, oob_err_rate)
+  return(results)
+}
+```
+
+```{r}
+hiperparametro_mtry <-  tuning_rf_mtry(df = df_3, y = "status_group_dummy")
+hiperparametro_mtry %>% arrange(oob_err_rate)
+```
+
+```{r}
+ggplot(data = hiperparametro_mtry, aes(x = n_predictores, y = oob_err_rate)) +
+  scale_x_continuous(breaks = hiperparametro_mtry$n_predictores) +
+  geom_line() +
+  geom_point() +
+  geom_point(data = hiperparametro_mtry %>% arrange(oob_err_rate) %>% head(1),
+             color = "red") +
+  labs(title = "Evolución del out-of-bag-error vs mtry",
+       x = "nº predictores empleados") +
+  theme_bw()
+```
+
+Seleccionamos **3** para numero de predictores 
+
+```{r}
+hiperparametro_mtry <-  tuning_rf_mtry(df = df_3B, y = "status_group_dummy")
+hiperparametro_mtry %>% arrange(oob_err_rate)
+
+library(ggplot2)
+ggplot(data = hiperparametro_mtry, aes(x = n_predictores, y = oob_err_rate)) +
+  scale_x_continuous(breaks = hiperparametro_mtry$n_predictores) +
+  geom_line() +
+  geom_point() +
+  geom_point(data = hiperparametro_mtry %>% arrange(oob_err_rate) %>% head(1),
+             color = "red") +
+  labs(title = "Evolución del out-of-bag-error vs mtry",
+       x = "nº predictores empleados") +
+  theme_bw()
+```
+
+Seleccionamos **3** para numero de predictores 
+
+
+ La función randomForest() emplea como valores por defecto nodesize = 1 en problemas de clasificación y ntree = 500. Empleamos el out of bag error para optimizar **el nodesize**
+
+```{r}
+tuning_rf_nodesize <- function(df, y, size = NULL, ntree = 300){
+  # Esta función devuelve el out-of-bag clasification error de un modelo RandomForest
+  # en función del tamaño mínimo de los nodos terminales (nodesize).
+  
+  # Argumentos:
+  #   df = data frame con los predictores y variable respuesta
+  #   y  = nombre de la variable respuesta
+  #   sizes = tamaños evaluados
+  #   ntree = número de árboles creados en el modelo randomForest
+  
+  require(dplyr)
+  if (is.null(size)){
+    size <- seq(from = 1, to = nrow(df), by = 5)
+  }
+  oob_err_rate <- rep(NA, length(size))
+  for (i in seq_along(size)) {
+    set.seed(321)
+    f <- formula(paste(y,"~ ."))
+    modelo_rf <- randomForest(formula = f, data = df, mtry = 2, ntree = ntree,
+                              nodesize = i)
+    oob_err_rate[i] <- tail(modelo_rf$err.rate[, 1], n = 1)
+  }
+  results <- data_frame(size, oob_err_rate)
+  return(results)
+}
+
+```
+
+```{r}
+hiperparametro_nodesize <-  tuning_rf_nodesize(df = df_3, y = "status_group_dummy",
+                                               size = c(1:20))
+hiperparametro_nodesize %>% arrange(oob_err_rate)
+```
+
+```{r}
+library(ggplot2)
+ggplot(data = hiperparametro_nodesize, aes(x = size, y = oob_err_rate)) +
+  scale_x_continuous(breaks = hiperparametro_nodesize$size) +
+  geom_line() +
+  geom_point() +
+  geom_point(data = hiperparametro_nodesize %>% arrange(oob_err_rate) %>% head(1),
+             color = "red") +
+  labs(title = "Evolución del out-of-bag-error vs nodesize",
+       x = "nº observaciones en nodos terminales") 
+
+```
+
+Nodesize 2
+
+```{r}
+hiperparametro_nodesize <-  tuning_rf_nodesize(df = df_3B, y = "status_group_dummy",
+                                               size = c(1:20))
+hiperparametro_nodesize %>% arrange(oob_err_rate)
+```
+
+```{r}
+ggplot(data = hiperparametro_nodesize, aes(x = size, y = oob_err_rate)) +
+  scale_x_continuous(breaks = hiperparametro_nodesize$size) +
+  geom_line() +
+  geom_point() +
+  geom_point(data = hiperparametro_nodesize %>% arrange(oob_err_rate) %>% head(1),
+             color = "red") +
+  labs(title = "Evolución del out-of-bag-error vs nodesize",
+       x = "nº observaciones en nodos terminales") 
+```
+
+Nodesize 7
+
+
+### Aplicación Modelo
+
+Una ves seleccionados los parámetros adecuadamente, procedemos a entrenar el modelo con los conjuntos de entrenamiento de ambos datasets.
+
+```{r}
+set.seed(123)
+rf_3 = randomForest(status_group_dummy ~ ., 
+                    data = df_3, mtry = 3, ntree = 300,
+                    importance = TRUE, nodesize = 2,
+                    norm.votes = TRUE )
+
+```
+
+```{r}
+set.seed(123)
+rf_3B = randomForest(status_group_dummy ~ ., 
+                    data = df_3B, mtry = 3, ntree = 300,
+                    importance = TRUE, nodesize = 7,
+                    norm.votes = TRUE )
+
+```
+
+### Evaluación Modelo
+
+Calculamos accuracy y matriz de confusión, así como curvas ROC para RandomForest con el conjunto de test de ambos datasets.
+
+```{r}
+#CURVA ROC
+predictions_rf <- predict(rf_3, newdata = df_3_test, type = "prob")
+pred_rf = prediction(predictions_rf[,2], df_3_test$status_group_dummy)
+pref_rf = performance(pred_rf, "tpr", "fpr")
+plot(pref_rf)
+```
+
+```{r}
+#CURVA ROC
+predictions_rf_B <- predict(rf_3B, newdata = df_3B_test, type = "prob")
+pred_rf_B = prediction(predictions_rf_B[,2], df_3B_test$status_group_dummy)
+pref_rf_B = performance(pred_rf_B, "tpr", "fpr")
+plot(pref_rf_B)
+```
+
+```{r}
+#MATRIZ
+tab_rf = table(pred = predict(rf_3, df_3_test, type = "class"),obs = df_3_test$status_group_dummy)
+ntest = sum(tab_rf)
+acierto_rf = sum(diag(tab_rf))/ntest
+acierto_rf
+tab_rf
+```
+
+```{r}
+#MATRIZ
+tab_rf_B = table(pred = predict(rf_3B, df_3B_test, type = "class"),obs = df_3B_test$status_group_dummy)
+ntest = sum(tab_rf_B)
+acierto_rf_B = sum(diag(tab_rf_B))/ntest
+acierto_rf_B
+tab_rf_B
+```
+
+Podemos observar, que hasta el momento, este modelo es el que devuelve mejores resultados de acierto en test de todos los implementados hasta este punto.
+Sigue siendo consistentemente mejor los modelos entrenados y testeados con el dataset al que no se le han aplicado técnicas de reducción de dimensiones en las variables.
+
+## SVM 
+
+Por último, procedemos a entrenar dos máquinas de vector soporte, con kernel lineal y con kernel radial para ambos datasets.
+
+### Aplicación Modelo
+
+#### LINEAL
+
+```{r}
+svm_3_ln <- svm(status_group_dummy ~ ., 
+                 data = df_3, kernel = "linear",
+                 cost = 1, probability = TRUE)
+```
+
+```{r}
+svm_3B_ln <- svm(status_group_dummy ~ ., 
+                 data = df_3B, kernel = "linear",
+                 cost = 1, probability = TRUE)
+```
+
+#### RADIAL
+
+```{r}
+svm_3_rd <- svm(status_group_dummy ~ ., 
+                 data = df_3, kernel = "radial",
+                 cost = 1, gamma = 0.1, probability = TRUE)
+```
+
+```{r}
+svm_3B_rd <- svm(status_group_dummy ~ ., 
+                 data = df_3B, kernel = "radial",
+                 cost = 1, gamma = 0.1, probability = TRUE)
+```
+
+### Evaluación Modelo
+
+#### LINEAL
+
+```{r}
+#CURVA ROC
+predictions_svm_ln <- predict(svm_3_ln, newdata = df_3_test, probability = TRUE)
+pred_svm_ln = prediction(attributes(predictions_svm_ln)$probabilities[,2], df_3_test$status_group_dummy)
+pref_svm_ln = performance(pred_svm_ln, "tpr", "fpr")
+plot(pref_svm_ln)
+```
+
+```{r}
+#CURVA ROC
+predictions_svm_ln_B <- predict(svm_3B_ln, newdata = df_3B_test, probability = TRUE)
+pred_svm_ln_B = prediction(attributes(predictions_svm_ln_B)$probabilities[,2], df_3B_test$status_group_dummy)
+pref_svm_ln_B = performance(pred_svm_ln_B, "tpr", "fpr")
+plot(pref_svm_ln_B)
+```
+
+#### RADIAL
+
+```{r}
+#CURVA ROC
+predictions_svm_rd <- predict(svm_3_rd, newdata = df_3_test, probability = TRUE)
+pred_svm_rd = prediction(attributes(predictions_svm_rd)$probabilities[,2], df_3_test$status_group_dummy)
+pref_svm_rd = performance(pred_svm_rd, "tpr", "fpr")
+plot(pref_svm_rd)
+```
+
+```{r}
+#CURVA ROC
+predictions_svm_rd_B <- predict(svm_3B_rd, newdata = df_3B_test, probability = TRUE)
+pred_svm_rd_B = prediction(attributes(predictions_svm_rd_B)$probabilities[,2], df_3B_test$status_group_dummy)
+pref_svm_rd_B = performance(pred_svm_rd_B, "tpr", "fpr")
+plot(pref_svm_rd_B)
+```
+
+#### LINEAL
+
+```{r}
+#MATRIZ
+tab_svm_ln = table(pred = predict(svm_3_ln, df_3_test, type = "class"),obs = df_3_test$status_group_dummy)
+ntest = sum(tab_svm_ln)
+acierto_svm_ln = sum(diag(tab_svm_ln))/ntest
+acierto_svm_ln
+tab_svm_ln
+```
+
+```{r}
+#MATRIZ
+tab_svm_ln_B = table(pred = predict(svm_3B_ln, df_3B_test, type = "class"),obs = df_3B_test$status_group_dummy)
+ntest = sum(tab_svm_ln_B)
+acierto_svm_ln_B = sum(diag(tab_svm_ln_B))/ntest
+acierto_svm_ln_B
+tab_svm_ln_B
+```
+
+#### RADIAL
+
+```{r}
+#MATRIZ
+tab_svm_rd = table(pred = predict(svm_3_rd, df_3_test, type = "class"),obs = df_3_test$status_group_dummy)
+ntest = sum(tab_svm_rd)
+acierto_svm_rd = sum(diag(tab_svm_rd))/ntest
+acierto_svm_rd
+tab_svm_rd
+```
+
+```{r}
+#MATRIZ
+tab_svm_rd_B = table(pred = predict(svm_3B_rd, df_3B_test, type = "class"),obs = df_3B_test$status_group_dummy)
+ntest = sum(tab_svm_rd_B)
+acierto_svm_rd_B = sum(diag(tab_svm_rd_B))/ntest
+acierto_svm_rd_B
+tab_svm_rd_B
+```
+
+Como era de esperar, obtenemos mejores resultados con el kernel radial que con el lineal, siendo éstos inferires al mejor modelo hasta el momento, RandomForest.
+
+## Comparación de Modelos
+
+Procedemos ahora a comparar los resultados obtenidos para cada uno de los 6 modelos con cada uno de los dos datasets.
+
+Accuracy Feather normal:
+
+```{r}
+acierto <- c(acierto_lr, acierto_tree, acierto_bg, acierto_rf, acierto_svm_ln, acierto_svm_rd)
+names(acierto) <- c("LR", "DT", "BG", "RF", "SVM L", "SVM R")
+
+barplot(acierto, col=c("aquamarine", "blue", "red", "purple", "orange", "yellow"), ylim=c(0,1))
+```
+
+Accuracy Feather B:
+
+```{r}
+acierto_B <- c(acierto_lr_B, acierto_tree_B, acierto_bg_B, acierto_rf_B, acierto_svm_ln_B, acierto_svm_rd_B)
+names(acierto_B) <- c("LR B", "DT B", "BG B", "RF B", "SVM L B", "SVM R B")
+
+barplot(acierto_B, col=c("green","magenta","navy","turquoise","darkred","black"), ylim=c(0,1))
+
+```
+
+Accuracy Feather normal + Feather B :
+
+```{r}
+acierto <- c(acierto_lr, acierto_lr_B, acierto_tree, acierto_tree_B, acierto_bg, acierto_bg_B, acierto_rf, acierto_rf_B, acierto_svm_ln, acierto_svm_ln_B, acierto_svm_rd, acierto_svm_rd_B)
+names(acierto) <- c("LR", "LR B", "DT", "DT B", "BG", "BG B", "RF", "RF B", "SVM L", "SVM L B", "SVM R", "SVM R B")
+
+barplot(acierto, col=c("aquamarine","green","blue", "magenta","red","navy","purple","turquoise","orange","darkred","yellow","black"), ylim=c(0,1))
+
+```
+
+Curvas ROC Feather normal:
+
+```{r}
+plot(pref_lr, col = "aquamarine", lwd = 2)
+plot(pref_tr, add = TRUE, col = "blue", lwd = 2)
+plot(pref_bg, add = TRUE, col = "red", lwd = 2)
+plot(pref_rf, add = TRUE, col = "purple", lwd = 2)
+plot(pref_svm_ln, add = TRUE, col = "orange", lwd = 2)
+plot(pref_svm_rd, add = TRUE, col = "yellow", lwd = 2)
+abline(a = 1, b = -1)
+
+legend(0.8, 0.8, c("LR", "DT", "BG", "RF", "SVM L", "SVM R"), lty = c(1,
+1, 1, 1, 1, 1), lwd = c(2, 2, 2, 2, 2, 2), col=c("aquamarine", "blue", "red", "purple", "orange", "yellow"))
+
+```
+
+Curvas ROC feather B:
+
+```{r}
+plot(pref_lr_B, col = "green", lwd = 2)
+plot(pref_tr_B, add = TRUE, col = "magenta", lwd = 2)
+plot(pref_bg_B, add = TRUE, col = "navy", lwd = 2)
+plot(pref_rf_B, add = TRUE, col = "turquoise", lwd = 2)
+plot(pref_svm_ln_B, add = TRUE, col = "darkred", lwd = 2)
+plot(pref_svm_rd_B, add = TRUE, col = "black", lwd = 2)
+abline(a = 1, b = -1)
+
+legend(0.8, 0.8, c("LR B", "DT B", "BG B", "RF B", "SVM L B", "SVM R B"), lty = c(1,
+1, 1, 1, 1, 1), lwd = c(2, 2, 2, 2, 2, 2), col=c("green","magenta","navy","turquoise","darkred","black"))
+
+```
+
+Curvas ROC Feather B + Feather normal:
+
+```{r}
+plot(pref_lr, col = "aquamarine", lwd = 2)
+plot(pref_tr, add = TRUE, col = "blue", lwd = 2)
+plot(pref_bg, add = TRUE, col = "red", lwd = 2)
+plot(pref_rf, add = TRUE, col = "purple", lwd = 2)
+plot(pref_svm_ln, add = TRUE, col = "orange", lwd = 2)
+plot(pref_svm_rd, add = TRUE, col = "yellow", lwd = 2)
+
+plot(pref_lr_B, add = TRUE, col = "green", lwd = 2)
+plot(pref_tr_B, add = TRUE, col = "magenta", lwd = 2)
+plot(pref_bg_B, add = TRUE, col = "navy", lwd = 2)
+plot(pref_rf_B, add = TRUE, col = "turquoise", lwd = 2)
+plot(pref_svm_ln_B, add = TRUE, col = "darkred", lwd = 2)
+plot(pref_svm_rd_B, add = TRUE, col = "black", lwd = 2)
+abline(a = 1, b = -1)
+
+legend(0.8, 0.8, c("LR", "LR B", "DT", "DT B", "BG", "BG B", "RF", "RF B", "SVM L", "SVM L B", "SVM R", "SVM R B"), lty = c(1,
+1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1), lwd = c(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2), col=c("aquamarine","green","blue", "magenta","red","navy","purple","turquoise","orange","darkred","yellow","black"))
+
+```
+
+Con esta comparativa observamos que el mejor modelo , con un accuracy de 79%, es Random Forest entrenado y testeado con el conjunto de datos normal.
+

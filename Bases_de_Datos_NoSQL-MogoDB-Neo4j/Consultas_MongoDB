@@ -1,0 +1,109 @@
+########
+## Mongo DB
+########
+
+ * Carga en mongo
+
+Carga inicial, crea BBDD y colección
+
+mongoimport --db dblptv2 --collection publi --file json_inproceedings_v2/part-00000-b1372ddf-0f53-4e7b-8417-9af6bc1edac1-c000.json
+
+Carga resto de los 2 json restantes
+
+mongoimport -c publi -d dblptv2 --mode merge --file json_incollection_v2/part-00000-3cc2aad8-b4d8-4c7b-80b5-c8a321829a8e-c000.json
+
+mongoimport -c publi -d dblptv2 --mode merge --file json_article_v2/part-00000-9afd27e6-dbed-4d4d-858b-1825520cbfdb-c000.json
+
+ * Creaccion de Index
+db.publi.createIndex( { author: 1 } )
+
+ * Queries 
+
+	1) Listado de las publicaciones de un determinado autor:
+
+db.publi.aggregate([
+{$match :{author :"Javier M. Moguerza"}},
+{$project:{_id:0,titulo:"$title"}}])
+
+	2) Numero de publicaciones de un autor determinado: 
+
+db.publi.aggregate([ 
+{$match :{author :"Javier M. Moguerza"}}, 
+{$group:{_id:null ,total_titulos:{$sum:1}}} ,
+{$project:{_id:0,total_titulos:"$total_titulos"}}]) ;  
+
+	3) Numero de articulos de revista en el año 2017:
+
+ db.publi.aggregate([ 
+{$match :{type :"article" ,"year": "2017" }},
+{$group:{_id:null ,total_articulos:{$sum:1}}} ,
+{$project:{_id:0,total_articulos:"$total_articulos"}}]) ;  
+
+	4) Numero de autores ocasionales, es decir, que tengan menos de 5 publicaciones en total:
+
+db.publi.aggregate([
+{$match: {author: { $not: {$size: 0} }}},
+{ $unwind: "$author" }, 
+{ $group: {_id: {$toLower: '$author'},numero_publicaciones_autor: { $sum: 1 }}}, 
+{ $match: { numero_publicaciones_autor: { $lte: 5 }}},
+{ $group: {_id: { author: "$author"}, numero_autores_menos_5pub: {$sum:1} } },
+{$project:{_id:0,numero_autores_menos_5pub:"$numero_autores_menos_5pub"}}
+], {allowDiskUse:true}) 
+
+	5) Número de artículos de revista (article) y nœmero de art’culos en congresos (inproceedings) de los diez autores con m‡s publicaciones totales:
+
+db.publi.aggregate([  
+{$match :{type :{ $in: ['article','inproceedings'] }}},  
+{ $unwind: "$author" } , 
+{ $group: {_id:{ author: "$author"}, publicaciones: {$sum:1},"type": {"$push":"$type"} }},
+{$sort:{"publicaciones":-1}},{$limit:10},
+{$sort: {"publicaciones":-1}},{ $unwind: "$type" },  
+{ $group: {_id: {type: "$type", title: "$title", }, numero_titulos: {$sum:1} } }, 
+], {allowDiskUse:true})
+
+	6)	Número medio de autores por publicacion:
+
+db.publi.aggregate([ 
+{$unwind: '$author'}, 
+{ $group: {_id:{ title: "$title"},autores_publicaciones: { $sum: 1 }}},
+{$group: {_id: null, media_autores_pub: {'$avg': '$autores_publicaciones'}}}, 
+  ], {allowDiskUse:true}) 
+
+	7)	Listado de coautores de un autor:
+
+db.publi.aggregate([
+{$match :{author :"Javier M. Moguerza"}}, 
+    {$unwind: '$author'},
+        {$group: {_id: "author", values: {$addToSet: '$author'}       }, }])
+
+	8)	Edad de los 5 autores con un per’odo de publicacion mas largo:
+
+db.publi.aggregate([ 
+{ $unwind: "$author" } , {$group : { _id: "$author", anos: { $push: "$year2"} }}, 
+{$project:{ maximo: {$max: "$anos"}, minimo:{ $min: "$anos"} }}, 
+{$project: {edad: {$subtract: ["$maximo", "$minimo"] } } }, {$sort: {edad:-1}}, {$limit: 5} 
+], {allowDiskUse:true}) 
+
+
+	9)	Numero de autores novatos: 
+
+db.publi.aggregate([ 
+{ $unwind: "$author" } , {$group : { _id: "$author", anos: { $push: "$year2"} }},  
+{$project:{ maximo: {$max: "$anos"}, minimo:{ $min: "$anos"} }}, 
+{$project: {edad: {$subtract: ["$maximo", "$minimo"] } } }, 
+{$match: {edad: {$lt:5}}}, {$count: "AutoresNovatos"} 
+], {allowDiskUse:true}) 
+
+
+	10)	Porcentaje de publicaciones de revistas:
+
+db.getCollection('publi').find({ 'type': 'article' }).count()/db.getCollection('publi').find({}).count()
+
+db.publi.aggregate([  
+    { $project: { "_id": 0, "type": 1 } }, // get type field
+    { $group: { "_id": { "type": "$type"}, "total": { $sum: 1 } } }, // group by type, total by type
+    { $group: { "_id":"_id", "tipo": { $push: { "tipo": "$type", nombre:"$type" ,total: "$total" } },"grandTotal": { $sum: "$total" } } }, // group by id only to get the grand total // flatten grouped items
+{ $unwind: "$tipo" },
+{$project: {"_id":0,  "tipo.nombre":1, "tipo.total":1,"grandTotal":1,"percentage": {$divide: ["$tipo.total", "$grandTotal" ]}}}
+], {allowDiskUse:true})
+

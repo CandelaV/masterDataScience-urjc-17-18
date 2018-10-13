@@ -1,0 +1,6 @@
+CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY 'admin';
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+CREATE DATABASE resultados;
+USE resultados;
+CREATE TABLE tweets(estado CHAR(20),puntuacion DECIMAL(5,2), contador INT);

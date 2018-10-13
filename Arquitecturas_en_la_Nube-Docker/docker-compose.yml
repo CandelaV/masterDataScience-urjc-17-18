@@ -1,0 +1,33 @@
+version: '3'
+
+services:
+  db:
+    image: candelav/mysql-app
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+    ports:
+      - 3306:3306
+    networks:
+      cloud :
+        ipv4_address: 172.28.0.2
+
+
+  twittanalysis:
+    image: candelav/tweetanalysis
+    hostname: quickstart.cloudera
+    privileged: true
+    networks:
+      cloud :
+        ipv4_address: 172.28.0.3
+    depends_on:
+      - db
+    links:
+      - db:mysql-app
+
+networks:
+  cloud:
+    driver: bridge   
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
