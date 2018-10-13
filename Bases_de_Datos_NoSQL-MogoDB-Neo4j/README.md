@@ -1,4 +1,4 @@
-### Bases de Datos No Convencionales.
+### Práctica Bases de Datos No Convencionales.
 
 El objetivo de la práctica es la captura, procesamiento, almacenamiento y
 análisis de datos de la base de datos DBPL Computer Science Bibliography utilizando
