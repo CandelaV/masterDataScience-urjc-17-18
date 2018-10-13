@@ -9,24 +9,25 @@ análisis se deberán guardar en una base de datos relacional (se ha elegido MyS
 
 Tras la implementación de la aplicación completa, se empaquetará en contenedores orquestados con un fichero dockercompose.
 
-
-
-* **mysql-app** : situados en el directorio db-app se ejecuta el comando:
+**mysql-app** &rarr; situados en el directorio db-app se ejecuta el comando:
 
 
     $ docker build -t mysql-app .
 
-*  **tweetanalysis-app** : situados en el directorio tweetanalysis-app se ejecuta el comando:
+
+**tweetanalysis-app** &rarr; situados en el directorio tweetanalysis-app se ejecuta el comando:
 
 
     $ docker build -t tweetanalysis .
 
-* **docker-compose.yml** : se ejecuta el siguiente comando introduciendo los parámetros indicados (NOTA: TIME en segundos, ha de ser suficiente para obtener un numero elevado de twitts):
+
+**docker-compose.yml** &rarr; se ejecuta el siguiente comando introduciendo los parámetros indicados (NOTA: TIME en segundos, ha de ser suficiente para obtener un numero elevado de twitts):
 
 
     $ docker-compose run -e TIME=XXX -e ACCESS_TOKEN_KEY=XXX -e ACCESS_TOKEN_SECRET=XXX -e CONSUMER_KEY=XXX -e CONSUMER_SECRET=XXX twittananalysis
 
 Una vez levantados ambos servicios y ejecutada la aplicacion se puede acceder al resultado conectandose a una shell del contenedor partea_db_1 con el comando:
+
 
     $ docker exec -it partea_db_1 bash
 
