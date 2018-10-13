@@ -1,4 +1,5 @@
 ### Práctica Arquitecturas en la Nube. Docker
+
 El objetivo de esta parte consiste en empaquetar y distribuir una aplicación en
 contenedores docker.
 
@@ -7,6 +8,7 @@ se empaquetará como contenedores docker. Los resultados del
 análisis se deberán guardar en una base de datos relacional (se ha elegido MySQL).
 
 Tras la implementación de la aplicación completa, se empaquetará en contenedores orquestados con un fichero dockercompose.
+
 
 
 * **mysql-app** : situados en el directorio db-app se ejecuta el comando:
